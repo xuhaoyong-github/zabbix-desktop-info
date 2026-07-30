@@ -66,7 +66,14 @@ typedef struct {
 
 static HFONT GetFont(void)
 {
-    return CreateFontA(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    /* Match the system tray context-menu font size exactly */
+    NONCLIENTMETRICS ncm;
+    memset(&ncm, 0, sizeof(ncm));
+    ncm.cbSize = sizeof(ncm);
+    if (SystemParametersInfoA(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0))
+        return CreateFontIndirectA(&ncm.lfMenuFont);
+    /* Fallback: approximate menu font (~12px character height) */
+    return CreateFontA(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, FF_SWISS, "Segoe UI");
 }
@@ -202,47 +209,47 @@ static LRESULT CALLBACK SelectProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
             HFONT hFont = GetFont();
 
-            /* Labels */
+            /* Labels (title row, both aligned at y=10) */
             i18n_create_label(hwnd, S_HOSTS, 10, 10, 150, 18, hFont);
             i18n_create_label(hwnd, S_MONITOR_ITEMS, 200, 10, 200, 18, hFont);
 
-            /* Host list */
+            /* Host list (top aligned with item list at y=32) */
             sd->hHostList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
                 WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_SORT,
-                10, 30, 180, 210, hwnd, (HMENU)(INT_PTR)IDC_HOST_LIST, NULL, NULL);
+                10, 32, 180, 200, hwnd, (HMENU)(INT_PTR)IDC_HOST_LIST, NULL, NULL);
             SendMessageW(sd->hHostList, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            /* Item list */
+            /* Item list (top aligned with host list at y=32) */
             sd->hItemList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
                 WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL,
-                200, 50, 320, 200, hwnd, (HMENU)(INT_PTR)IDC_ITEM_LIST, NULL, NULL);
+                200, 32, 320, 200, hwnd, (HMENU)(INT_PTR)IDC_ITEM_LIST, NULL, NULL);
             SendMessageW(sd->hItemList, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            /* Host search box */
-            i18n_create_label(hwnd, S_SEARCH, 10, 253, 50, 18, hFont);
-            sd->hHostSearch = i18n_create_edit(hwnd, "", 55, 250, 135, 22, IDC_HOST_SEARCH, hFont);
+            /* Host search box (label vertically centered with edit box, no overlap) */
+            i18n_create_label(hwnd, S_SEARCH, 10, 242, 45, 18, hFont);
+            sd->hHostSearch = i18n_create_edit(hwnd, "", 60, 240, 130, 22, IDC_HOST_SEARCH, hFont);
 
             /* Item search box */
-            i18n_create_label(hwnd, S_SEARCH, 200, 253, 50, 18, hFont);
-            sd->hSearch = i18n_create_edit(hwnd, "", 255, 250, 265, 22, IDC_ITEM_SEARCH, hFont);
+            i18n_create_label(hwnd, S_SEARCH, 200, 242, 45, 18, hFont);
+            sd->hSearch = i18n_create_edit(hwnd, "", 250, 240, 270, 22, IDC_ITEM_SEARCH, hFont);
 
-            /* Widget type radio buttons */
-            i18n_create_label(hwnd, S_WIDGET_TYPE, 10, 282, 90, 18, hFont);
+            /* Widget type radio buttons (label above, radios aligned) */
+            i18n_create_label(hwnd, S_WIDGET_TYPE, 10, 270, 90, 18, hFont);
             sd->hRadioGauge = i18n_create_button(hwnd, S_GAUGE, BS_AUTORADIOBUTTON | WS_GROUP,
-                10, 302, 60, 20, IDC_RADIO_GAUGE, hFont);
+                10, 290, 60, 20, IDC_RADIO_GAUGE, hFont);
             SendMessageW(sd->hRadioGauge, BM_SETCHECK, BST_CHECKED, 0);
             sd->hRadioCard = i18n_create_button(hwnd, S_CARD, BS_AUTORADIOBUTTON,
-                75, 302, 55, 20, IDC_RADIO_CARD, hFont);
+                75, 290, 55, 20, IDC_RADIO_CARD, hFont);
             sd->hRadioTrend = i18n_create_button(hwnd, S_TREND, BS_AUTORADIOBUTTON,
-                135, 302, 60, 20, IDC_RADIO_TREND, hFont);
+                135, 290, 65, 20, IDC_RADIO_TREND, hFont);
 
             /* Status */
-            sd->hStatus = i18n_create_label(hwnd, S_LOADING_HOSTS, 10, 325, 400, 18, hFont);
+            sd->hStatus = i18n_create_label(hwnd, S_LOADING_HOSTS, 10, 322, 400, 18, hFont);
 
             /* Buttons */
-            i18n_create_button(hwnd, S_ADD_WIDGET, BS_DEFPUSHBUTTON, 340, 350, 90, 30, IDC_ADD_BTN, hFont);
+            i18n_create_button(hwnd, S_ADD_WIDGET, BS_DEFPUSHBUTTON, 340, 348, 90, 30, IDC_ADD_BTN, hFont);
             EnableWindow(GetDlgItem(hwnd, IDC_ADD_BTN), FALSE);
-            i18n_create_button(hwnd, S_CANCEL, 0, 435, 350, 80, 30, IDC_CANCEL_BTN, hFont);
+            i18n_create_button(hwnd, S_CANCEL, 0, 435, 348, 80, 30, IDC_CANCEL_BTN, hFont);
 
             /* Size window */
             RECT rc = {0, 0, 530, 390};
