@@ -16,6 +16,7 @@
 #include "widget.h"
 #include "ui_login.h"
 #include "ui_select.h"
+#include "i18n.h"
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -67,12 +68,12 @@ static HWND create_and_track_widget(WidgetConfig *wc, int config_idx)
 static void show_tray_menu(HWND hwnd)
 {
     HMENU hMenu = CreatePopupMenu();
-    AppendMenuA(hMenu, MF_STRING, IDM_TRAY_ADD, "Add Widget...");
+    i18n_append_menu(hMenu, MF_STRING, IDM_TRAY_ADD, S_ADD_WIDGET_ELLIPSIS);
     AppendMenuA(hMenu, MF_SEPARATOR, 0, NULL);
-    AppendMenuA(hMenu, MF_STRING, IDM_TRAY_LOGIN, "Login Settings...");
-    AppendMenuA(hMenu, MF_STRING, IDM_TRAY_REFRESH, "Refresh All");
+    i18n_append_menu(hMenu, MF_STRING, IDM_TRAY_LOGIN, S_LOGIN_SETTINGS);
+    i18n_append_menu(hMenu, MF_STRING, IDM_TRAY_REFRESH, S_REFRESH_ALL);
     AppendMenuA(hMenu, MF_SEPARATOR, 0, NULL);
-    AppendMenuA(hMenu, MF_STRING, IDM_TRAY_EXIT, "Exit");
+    i18n_append_menu(hMenu, MF_STRING, IDM_TRAY_EXIT, S_EXIT);
 
     POINT pt;
     GetCursorPos(&pt);
@@ -119,8 +120,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             switch (LOWORD(wParam)) {
                 case IDM_TRAY_ADD: {
                     if (!g_api.connected) {
-                        MessageBoxA(hwnd, "Not connected to Zabbix. Please login first.",
-                                    "Error", MB_ICONWARNING);
+                        i18n_message_box(hwnd, S_NOT_CONNECTED, S_ERROR, MB_ICONWARNING);
                         break;
                     }
                     WidgetConfig wc;
@@ -198,7 +198,13 @@ static int setup_tray_icon(HWND hwnd)
     g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYICON;
     g_nid.hIcon = LoadIconA(NULL, IDI_APPLICATION);
-    strncpy(g_nid.szTip, "Zabbix Desktop Info", sizeof(g_nid.szTip) - 1);
+    {
+        char *tip = utf8_to_acp(i18n_str(S_TRAY_TIP));
+        if (tip) {
+            strncpy(g_nid.szTip, tip, sizeof(g_nid.szTip) - 1);
+            free(tip);
+        }
+    }
 
     return Shell_NotifyIconA(NIM_ADD, &g_nid) ? 0 : -1;
 }
@@ -206,6 +212,9 @@ static int setup_tray_icon(HWND hwnd)
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR cmdLine, int showCmd)
 {
     g_hInstance = hInstance;
+
+    /* Initialize i18n (auto-detect OS language) */
+    i18n_init();
 
     /* Initialize common controls */
     INITCOMMONCONTROLSEX icc;
@@ -215,7 +224,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR cmdLine, int show
 
     /* Initialize GDI+ */
     if (render_init() != 0) {
-        MessageBoxA(NULL, "Failed to initialize GDI+", "Error", MB_ICONERROR);
+        i18n_message_box(NULL, S_FAILED_INIT_GDIPLUS, S_ERROR, MB_ICONERROR);
         return 1;
     }
 
@@ -239,7 +248,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR cmdLine, int show
     wc.hInstance = hInstance;
     wc.lpszClassName = "ZabbixDesktopMain";
     if (!RegisterClassExA(&wc)) {
-        MessageBoxA(NULL, "Failed to register window class", "Error", MB_ICONERROR);
+        i18n_message_box(NULL, S_FAILED_REGISTER_CLASS, S_ERROR, MB_ICONERROR);
         return 1;
     }
 
@@ -248,7 +257,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR cmdLine, int show
         WS_OVERLAPPEDWINDOW, 0, 0, 0, 0,
         NULL, NULL, hInstance, NULL);
     if (!hMain) {
-        MessageBoxA(NULL, "Failed to create main window", "Error", MB_ICONERROR);
+        i18n_message_box(NULL, S_FAILED_CREATE_MAIN, S_ERROR, MB_ICONERROR);
         return 1;
     }
 
@@ -283,8 +292,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR cmdLine, int show
         /* Could show a balloon tip, but for now just let the user
            right-click the tray icon to add widgets */
         g_nid.dwInfoFlags = NIIF_INFO;
-        strncpy(g_nid.szInfo, "Right-click the tray icon to add widgets.", sizeof(g_nid.szInfo) - 1);
-        strncpy(g_nid.szInfoTitle, "Zabbix Desktop Info", sizeof(g_nid.szInfoTitle) - 1);
+        {
+            char *info = utf8_to_acp(i18n_str(S_RIGHT_CLICK_ADD));
+            char *title = utf8_to_acp(i18n_str(S_BALLOON_TITLE));
+            if (info) { strncpy(g_nid.szInfo, info, sizeof(g_nid.szInfo) - 1); free(info); }
+            if (title) { strncpy(g_nid.szInfoTitle, title, sizeof(g_nid.szInfoTitle) - 1); free(title); }
+        }
         g_nid.uTimeout = 5000;
         g_nid.uFlags |= NIF_INFO;
         Shell_NotifyIconA(NIM_MODIFY, &g_nid);

@@ -15,6 +15,7 @@ echo === Compiling C files ===
 %GCC% %FLAGS% -c src\json.c       -o %BUILD%\json.o       || goto :error
 %GCC% %FLAGS% -c src\zabbix_api.c -o %BUILD%\zabbix_api.o || goto :error
 %GCC% %FLAGS% -c src\config.c     -o %BUILD%\config.o     || goto :error
+%GCC% %FLAGS% -c src\i18n.c       -o %BUILD%\i18n.o       || goto :error
 
 echo === Compiling C++ files ===
 

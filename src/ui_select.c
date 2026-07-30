@@ -7,56 +7,9 @@
 #include "ui_select.h"
 #include "zabbix_api.h"
 #include "config.h"
+#include "i18n.h"
 
 #pragma comment(lib, "comctl32.lib")
-
-/* Convert UTF-8 string to UTF-16 (wide). Returns malloc'd buffer, caller frees.
- * Returns NULL if input is NULL. */
-static wchar_t *utf8_to_wide(const char *utf8)
-{
-    if (!utf8) return NULL;
-    int len = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
-    if (len <= 0) return NULL;
-    wchar_t *w = (wchar_t *)malloc(len * sizeof(wchar_t));
-    if (!w) return NULL;
-    MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w, len);
-    return w;
-}
-
-/* Convert UTF-16 to ANSI (system code page). Returns malloc'd buffer. */
-static char *wide_to_acp(const wchar_t *w)
-{
-    if (!w) return NULL;
-    int len = WideCharToMultiByte(CP_ACP, 0, w, -1, NULL, 0, NULL, NULL);
-    if (len <= 0) return NULL;
-    char *a = (char *)malloc(len);
-    if (!a) return NULL;
-    WideCharToMultiByte(CP_ACP, 0, w, -1, a, len, NULL, NULL);
-    return a;
-}
-
-/* Convert UTF-8 to ANSI via UTF-16, for ASCII-only APIs */
-static char *utf8_to_acp(const char *utf8)
-{
-    wchar_t *w = utf8_to_wide(utf8);
-    if (!w) return NULL;
-    char *a = wide_to_acp(w);
-    free(w);
-    return a;
-}
-
-/* Set control text from a UTF-8 string (handles Unicode correctly) */
-static void set_text_utf8(HWND hCtrl, const char *utf8)
-{
-    if (!utf8) { SetWindowTextA(hCtrl, ""); return; }
-    wchar_t *w = utf8_to_wide(utf8);
-    if (w) {
-        SetWindowTextW(hCtrl, w);
-        free(w);
-    } else {
-        SetWindowTextA(hCtrl, utf8);
-    }
-}
 
 #define WM_HOSTS_LOADED  (WM_USER + 10)
 #define WM_ITEMS_LOADED  (WM_USER + 11)
@@ -248,85 +201,48 @@ static LRESULT CALLBACK SelectProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)sd);
 
             HFONT hFont = GetFont();
-            HWND hLbl;
 
             /* Labels */
-            hLbl = CreateWindowExA(0, "STATIC", "Hosts:", WS_CHILD | WS_VISIBLE,
-                10, 10, 150, 18, hwnd, NULL, NULL, NULL);
-            SendMessageA(hLbl, WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            hLbl = CreateWindowExA(0, "STATIC", "Monitor Items:", WS_CHILD | WS_VISIBLE,
-                200, 10, 200, 18, hwnd, NULL, NULL, NULL);
-            SendMessageA(hLbl, WM_SETFONT, (WPARAM)hFont, TRUE);
+            i18n_create_label(hwnd, S_HOSTS, 10, 10, 150, 18, hFont);
+            i18n_create_label(hwnd, S_MONITOR_ITEMS, 200, 10, 200, 18, hFont);
 
             /* Host list */
-            sd->hHostList = CreateWindowExA(WS_EX_CLIENTEDGE, "LISTBOX", "",
+            sd->hHostList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
                 WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_SORT,
                 10, 30, 180, 210, hwnd, (HMENU)(INT_PTR)IDC_HOST_LIST, NULL, NULL);
-            SendMessageA(sd->hHostList, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessageW(sd->hHostList, WM_SETFONT, (WPARAM)hFont, TRUE);
 
             /* Item list */
-            sd->hItemList = CreateWindowExA(WS_EX_CLIENTEDGE, "LISTBOX", "",
+            sd->hItemList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
                 WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL,
                 200, 50, 320, 200, hwnd, (HMENU)(INT_PTR)IDC_ITEM_LIST, NULL, NULL);
-            SendMessageA(sd->hItemList, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessageW(sd->hItemList, WM_SETFONT, (WPARAM)hFont, TRUE);
 
             /* Host search box */
-            hLbl = CreateWindowExA(0, "STATIC", "Search:", WS_CHILD | WS_VISIBLE,
-                10, 253, 50, 18, hwnd, NULL, NULL, NULL);
-            SendMessageA(hLbl, WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            sd->hHostSearch = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "",
-                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                55, 250, 135, 22, hwnd, (HMENU)(INT_PTR)IDC_HOST_SEARCH, NULL, NULL);
-            SendMessageA(sd->hHostSearch, WM_SETFONT, (WPARAM)hFont, TRUE);
+            i18n_create_label(hwnd, S_SEARCH, 10, 253, 50, 18, hFont);
+            sd->hHostSearch = i18n_create_edit(hwnd, "", 55, 250, 135, 22, IDC_HOST_SEARCH, hFont);
 
             /* Item search box */
-            hLbl = CreateWindowExA(0, "STATIC", "Search:", WS_CHILD | WS_VISIBLE,
-                200, 253, 50, 18, hwnd, NULL, NULL, NULL);
-            SendMessageA(hLbl, WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            sd->hSearch = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "",
-                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                255, 250, 265, 22, hwnd, (HMENU)(INT_PTR)IDC_ITEM_SEARCH, NULL, NULL);
-            SendMessageA(sd->hSearch, WM_SETFONT, (WPARAM)hFont, TRUE);
+            i18n_create_label(hwnd, S_SEARCH, 200, 253, 50, 18, hFont);
+            sd->hSearch = i18n_create_edit(hwnd, "", 255, 250, 265, 22, IDC_ITEM_SEARCH, hFont);
 
             /* Widget type radio buttons */
-            hLbl = CreateWindowExA(0, "STATIC", "Widget Type:", WS_CHILD | WS_VISIBLE,
-                10, 282, 90, 18, hwnd, NULL, NULL, NULL);
-            SendMessageA(hLbl, WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            sd->hRadioGauge = CreateWindowExA(0, "BUTTON", "Gauge",
-                WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | WS_GROUP,
-                10, 302, 60, 20, hwnd, (HMENU)(INT_PTR)IDC_RADIO_GAUGE, NULL, NULL);
-            SendMessageA(sd->hRadioGauge, WM_SETFONT, (WPARAM)hFont, TRUE);
-            SendMessageA(sd->hRadioGauge, BM_SETCHECK, BST_CHECKED, 0);
-
-            sd->hRadioCard = CreateWindowExA(0, "BUTTON", "Card",
-                WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
-                75, 302, 55, 20, hwnd, (HMENU)(INT_PTR)IDC_RADIO_CARD, NULL, NULL);
-            SendMessageA(sd->hRadioCard, WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            sd->hRadioTrend = CreateWindowExA(0, "BUTTON", "Trend",
-                WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
-                135, 302, 60, 20, hwnd, (HMENU)(INT_PTR)IDC_RADIO_TREND, NULL, NULL);
-            SendMessageA(sd->hRadioTrend, WM_SETFONT, (WPARAM)hFont, TRUE);
+            i18n_create_label(hwnd, S_WIDGET_TYPE, 10, 282, 90, 18, hFont);
+            sd->hRadioGauge = i18n_create_button(hwnd, S_GAUGE, BS_AUTORADIOBUTTON | WS_GROUP,
+                10, 302, 60, 20, IDC_RADIO_GAUGE, hFont);
+            SendMessageW(sd->hRadioGauge, BM_SETCHECK, BST_CHECKED, 0);
+            sd->hRadioCard = i18n_create_button(hwnd, S_CARD, BS_AUTORADIOBUTTON,
+                75, 302, 55, 20, IDC_RADIO_CARD, hFont);
+            sd->hRadioTrend = i18n_create_button(hwnd, S_TREND, BS_AUTORADIOBUTTON,
+                135, 302, 60, 20, IDC_RADIO_TREND, hFont);
 
             /* Status */
-            sd->hStatus = CreateWindowExA(0, "STATIC", "Loading hosts...",
-                WS_CHILD | WS_VISIBLE, 10, 325, 400, 18, hwnd,
-                (HMENU)(INT_PTR)IDC_STATUS_LABEL, NULL, NULL);
-            SendMessageA(sd->hStatus, WM_SETFONT, (WPARAM)hFont, TRUE);
+            sd->hStatus = i18n_create_label(hwnd, S_LOADING_HOSTS, 10, 325, 400, 18, hFont);
 
             /* Buttons */
-            CreateWindowExA(0, "BUTTON", "Add Widget", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                340, 350, 90, 30, hwnd, (HMENU)(INT_PTR)IDC_ADD_BTN, NULL, NULL);
-            SendMessageA(GetDlgItem(hwnd, IDC_ADD_BTN), WM_SETFONT, (WPARAM)hFont, TRUE);
+            i18n_create_button(hwnd, S_ADD_WIDGET, BS_DEFPUSHBUTTON, 340, 350, 90, 30, IDC_ADD_BTN, hFont);
             EnableWindow(GetDlgItem(hwnd, IDC_ADD_BTN), FALSE);
-
-            CreateWindowExA(0, "BUTTON", "Cancel", WS_CHILD | WS_VISIBLE,
-                435, 350, 80, 30, hwnd, (HMENU)(INT_PTR)IDC_CANCEL_BTN, NULL, NULL);
-            SendMessageA(GetDlgItem(hwnd, IDC_CANCEL_BTN), WM_SETFONT, (WPARAM)hFont, TRUE);
+            i18n_create_button(hwnd, S_CANCEL, 0, 435, 350, 80, 30, IDC_CANCEL_BTN, hFont);
 
             /* Size window */
             RECT rc = {0, 0, 530, 390};
@@ -343,16 +259,12 @@ static LRESULT CALLBACK SelectProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
         case WM_HOSTS_LOADED: {
             if (sd->host_fetch.error) {
-                char buf[600];
-                snprintf(buf, sizeof(buf), "Failed to load hosts: %s", zabbix_api_error());
-                set_text_utf8(sd->hStatus, buf);
+                i18n_set_text_fmt(sd->hStatus, i18n_str(S_FAILED_LOAD_HOSTS_FMT), zabbix_api_error());
             } else {
                 sd->hosts = (ZabbixHost *)sd->host_fetch.data;
                 sd->host_count = sd->host_fetch.count;
                 fill_host_list(sd, NULL);
-                char buf[64];
-                snprintf(buf, sizeof(buf), "%d hosts loaded. Select a host.", sd->host_count);
-                set_text_utf8(sd->hStatus, buf);
+                i18n_set_text_fmt(sd->hStatus, i18n_str(S_HOSTS_LOADED_FMT), sd->host_count);
             }
             if (sd->host_thread) { CloseHandle(sd->host_thread); sd->host_thread = NULL; }
             return 0;
@@ -363,16 +275,12 @@ static LRESULT CALLBACK SelectProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             if (sd->items) { free(sd->items); sd->items = NULL; }
 
             if (sd->item_fetch.error) {
-                char buf[600];
-                snprintf(buf, sizeof(buf), "Failed to load items: %s", zabbix_api_error());
-                set_text_utf8(sd->hStatus, buf);
+                i18n_set_text_fmt(sd->hStatus, i18n_str(S_FAILED_LOAD_ITEMS_FMT), zabbix_api_error());
             } else {
                 sd->items = (ZabbixItem *)sd->item_fetch.data;
                 sd->item_count = sd->item_fetch.count;
                 fill_item_list(sd, NULL);
-                char buf[64];
-                snprintf(buf, sizeof(buf), "%d items loaded.", sd->item_count);
-                set_text_utf8(sd->hStatus, buf);
+                i18n_set_text_fmt(sd->hStatus, i18n_str(S_ITEMS_LOADED_FMT), sd->item_count);
             }
             sd->items_loading = 0;
             EnableWindow(sd->hHostList, TRUE);  /* re-enable host list */
@@ -400,7 +308,7 @@ static LRESULT CALLBACK SelectProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
                         /* Clear item list and start loading */
                         SendMessageW(sd->hItemList, LB_RESETCONTENT, 0, 0);
-                        set_text_utf8(sd->hStatus, "Loading items...");
+                        set_text_utf8(sd->hStatus, i18n_str(S_LOADING_ITEMS));
                         EnableWindow(GetDlgItem(hwnd, IDC_ADD_BTN), FALSE);
                         EnableWindow(sd->hHostList, FALSE);
                         sd->items_loading = 1;
@@ -432,19 +340,9 @@ static LRESULT CALLBACK SelectProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                             EnableWindow(GetDlgItem(hwnd, IDC_ADD_BTN), TRUE);
 
                             /* Show item details in Unicode */
-                            wchar_t wbuf[512];
-                            wchar_t *wname = utf8_to_wide(sd->items[item_idx].name);
-                            wchar_t *wunits = utf8_to_wide(sd->items[item_idx].units);
-                            if (wname) {
-                                _snwprintf(wbuf, 512, L"Selected: %s (%s)",
-                                          wname,
-                                          (wunits && wunits[0]) ? wunits : L"no units");
-                                SetWindowTextW(sd->hStatus, wbuf);
-                            } else {
-                                SetWindowTextA(sd->hStatus, "Selected");
-                            }
-                            if (wname) free(wname);
-                            if (wunits) free(wunits);
+                            i18n_set_text_fmt(sd->hStatus, i18n_str(S_SELECTED_FMT),
+                                sd->items[item_idx].name,
+                                (sd->items[item_idx].units[0]) ? sd->items[item_idx].units : i18n_str(S_NO_UNITS));
                         }
                     }
                     break;
@@ -621,12 +519,13 @@ int ui_select_show(HINSTANCE hInstance, HWND parent, ZabbixAPI *api,
     sd.out_config = out_config;
     sd.current_host_idx = -1;
 
-    HWND hwnd = CreateWindowExA(0, "ZabbixSelectDlg", "Select Monitor Item",
+    HWND hwnd = CreateWindowExA(0, "ZabbixSelectDlg", "",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
         CW_USEDEFAULT, CW_USEDEFAULT, 530, 390,
         parent, NULL, hInstance, &sd);
 
     if (!hwnd) return 0;
+    i18n_set_window_title(hwnd, S_SELECT_ITEM_TITLE);
 
     /* Center on cursor's monitor (multi-monitor aware) */
     {

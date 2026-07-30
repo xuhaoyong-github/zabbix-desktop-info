@@ -10,6 +10,7 @@
 #include "render.h"
 #include "config.h"
 #include "zabbix_api.h"
+#include "i18n.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
@@ -223,9 +224,9 @@ static void widget_paint(WidgetData *wd)
     if (wd->data_valid) {
         value_str = wd->current_value_str;
     } else if (wd->fetch_failed) {
-        value_str = wd->error_msg[0] ? wd->error_msg : "Error";
+        value_str = wd->error_msg[0] ? wd->error_msg : i18n_str(S_ERROR);
     } else {
-        value_str = "Loading...";
+        value_str = i18n_str(S_LOADING);
     }
     ZabbixHistoryPoint *hist = NULL;
     int hist_count = 0;
@@ -272,12 +273,12 @@ static void widget_paint(WidgetData *wd)
 static void show_context_menu(HWND hwnd, WidgetData *wd, int x, int y)
 {
     HMENU hMenu = CreatePopupMenu();
-    AppendMenuA(hMenu, MF_STRING | (wd->config.always_on_top ? MF_CHECKED : 0),
-                IDM_TOGGLE_TOPMOST, "Always on Top");
-    AppendMenuA(hMenu, MF_STRING, IDM_CONFIGURE, "Configure...");
-    AppendMenuA(hMenu, MF_STRING, IDM_REFRESH_NOW, "Refresh Now");
+    i18n_append_menu(hMenu, MF_STRING | (wd->config.always_on_top ? MF_CHECKED : 0),
+                IDM_TOGGLE_TOPMOST, S_ALWAYS_ON_TOP);
+    i18n_append_menu(hMenu, MF_STRING, IDM_CONFIGURE, S_CONFIGURE);
+    i18n_append_menu(hMenu, MF_STRING, IDM_REFRESH_NOW, S_REFRESH_NOW);
     AppendMenuA(hMenu, MF_SEPARATOR, 0, NULL);
-    AppendMenuA(hMenu, MF_STRING, IDM_REMOVE, "Remove Widget");
+    i18n_append_menu(hMenu, MF_STRING, IDM_REMOVE, S_REMOVE_WIDGET);
 
     TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, x, y, 0, hwnd, NULL);
     DestroyMenu(hMenu);
@@ -291,28 +292,11 @@ typedef struct {
     HWND hOpacityLabel;
 } SettingsData;
 
-static HWND CreateLabel(HWND parent, const char *text, int x, int y, int w, int h, HFONT hFont)
-{
-    HWND hw = CreateWindowExA(0, "STATIC", text, WS_CHILD | WS_VISIBLE,
-        x, y, w, h, parent, NULL, NULL, NULL);
-    SendMessageA(hw, WM_SETFONT, (WPARAM)hFont, TRUE);
-    return hw;
-}
-
 static HWND CreateEdit(HWND parent, const char *text, int x, int y, int w, int h, int id, HFONT hFont)
 {
     HWND hw = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", text, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
         x, y, w, h, parent, (HMENU)(INT_PTR)id, NULL, NULL);
     SendMessageA(hw, WM_SETFONT, (WPARAM)hFont, TRUE);
-    return hw;
-}
-
-static HWND CreateCheckBox(HWND parent, const char *text, int checked, int x, int y, int w, int h, int id, HFONT hFont)
-{
-    HWND hw = CreateWindowExA(0, "BUTTON", text, WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-        x, y, w, h, parent, (HMENU)(INT_PTR)id, NULL, NULL);
-    SendMessageA(hw, WM_SETFONT, (WPARAM)hFont, TRUE);
-    SendMessageA(hw, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0);
     return hw;
 }
 
@@ -370,25 +354,25 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             int y = 10;
 
             /* Refresh interval */
-            CreateLabel(hwnd, "Refresh (sec):", 10, y + 3, 100, 18, hFont);
+            i18n_create_label(hwnd, S_REFRESH_SEC, 10, y + 3, 100, 18, hFont);
             char buf[32];
             snprintf(buf, sizeof(buf), "%d", cfg->refresh_interval);
             CreateEdit(hwnd, buf, 115, y, 60, 22, IDC_REFRESH_EDIT, hFont);
             y += 32;
 
             /* Always on top */
-            CreateCheckBox(hwnd, "Always on Top", cfg->always_on_top,
+            i18n_create_checkbox(hwnd, S_ALWAYS_ON_TOP, cfg->always_on_top,
                           10, y, 200, 20, IDC_TOPMOST_CHECK, hFont);
             y += 30;
 
             /* Opacity */
-            CreateLabel(hwnd, "Background Opacity:", 10, y + 3, 130, 18, hFont);
-            sd->hOpacityLabel = CreateLabel(hwnd, "", 145, y + 3, 30, 18, hFont);
+            i18n_create_label(hwnd, S_BACKGROUND_OPACITY, 10, y + 3, 130, 18, hFont);
+            sd->hOpacityLabel = i18n_create_label_str(hwnd, "", 145, y + 3, 30, 18, hFont);
             CreateTrackbar(hwnd, 50, 255, cfg->bg_opacity, 10, y + 22, 165, IDC_OPACITY_TRACK, hFont);
             y += 55;
 
             /* Accent color */
-            CreateLabel(hwnd, "Accent Color:", 10, y + 3, 90, 18, hFont);
+            i18n_create_label(hwnd, S_ACCENT_COLOR, 10, y + 3, 90, 18, hFont);
             CreateWindowExA(0, "BUTTON", "", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
                 105, y, 40, 22, hwnd, (HMENU)(INT_PTR)IDC_COLOR_BUTTON, NULL, NULL);
             sd->accent_color = cfg->accent_color;
@@ -396,24 +380,24 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
             /* Gauge-specific */
             if (isGauge) {
-                CreateLabel(hwnd, "--- Gauge Settings ---", 10, y, 200, 18, hFont);
+                i18n_create_label(hwnd, S_GAUGE_SETTINGS, 10, y, 200, 18, hFont);
                 y += 25;
 
-                CreateLabel(hwnd, "Min:", 10, y + 3, 40, 18, hFont);
+                i18n_create_label(hwnd, S_MIN, 10, y + 3, 40, 18, hFont);
                 snprintf(buf, sizeof(buf), "%.1f", cfg->gauge_min);
                 CreateEdit(hwnd, buf, 55, y, 60, 22, IDC_MIN_EDIT, hFont);
-                CreateLabel(hwnd, "Max:", 125, y + 3, 40, 18, hFont);
+                i18n_create_label(hwnd, S_MAX, 125, y + 3, 40, 18, hFont);
                 snprintf(buf, sizeof(buf), "%.1f", cfg->gauge_max);
                 CreateEdit(hwnd, buf, 170, y, 60, 22, IDC_MAX_EDIT, hFont);
                 y += 30;
 
-                CreateCheckBox(hwnd, "Warn:", cfg->gauge_warn_enabled,
+                i18n_create_checkbox(hwnd, S_WARN, cfg->gauge_warn_enabled,
                               10, y, 50, 20, IDC_WARN_CHECK, hFont);
                 snprintf(buf, sizeof(buf), "%.1f", cfg->gauge_warn);
                 CreateEdit(hwnd, buf, 65, y, 60, 22, IDC_WARN_EDIT, hFont);
                 y += 28;
 
-                CreateCheckBox(hwnd, "Crit:", cfg->gauge_crit_enabled,
+                i18n_create_checkbox(hwnd, S_CRIT, cfg->gauge_crit_enabled,
                               10, y, 50, 20, IDC_CRIT_CHECK, hFont);
                 snprintf(buf, sizeof(buf), "%.1f", cfg->gauge_crit);
                 CreateEdit(hwnd, buf, 65, y, 60, 22, IDC_CRIT_EDIT, hFont);
@@ -422,20 +406,18 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
             /* Trend-specific */
             if (isTrend) {
-                CreateLabel(hwnd, "--- Trend Settings ---", 10, y, 200, 18, hFont);
+                i18n_create_label(hwnd, S_TREND_SETTINGS, 10, y, 200, 18, hFont);
                 y += 25;
-                CreateLabel(hwnd, "Hours:", 10, y + 3, 50, 18, hFont);
+                i18n_create_label(hwnd, S_HOURS, 10, y + 3, 120, 18, hFont);
                 snprintf(buf, sizeof(buf), "%d", cfg->trend_hours);
-                CreateEdit(hwnd, buf, 65, y, 60, 22, IDC_HOURS_EDIT, hFont);
+                CreateEdit(hwnd, buf, 135, y, 60, 22, IDC_HOURS_EDIT, hFont);
                 y += 30;
             }
 
             /* Buttons */
             int btnY = y + 10;
-            CreateWindowExA(0, "BUTTON", "OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                50, btnY, 80, 28, hwnd, (HMENU)(INT_PTR)IDC_OK, NULL, NULL);
-            CreateWindowExA(0, "BUTTON", "Cancel", WS_CHILD | WS_VISIBLE,
-                140, btnY, 80, 28, hwnd, (HMENU)(INT_PTR)IDC_CANCEL, NULL, NULL);
+            i18n_create_button(hwnd, S_BTN_OK, BS_DEFPUSHBUTTON, 50, btnY, 80, 28, IDC_OK, hFont);
+            i18n_create_button(hwnd, S_CANCEL, 0, 140, btnY, 80, 28, IDC_CANCEL, hFont);
 
             /* Size window to content */
             int winH = btnY + 40;
@@ -568,12 +550,13 @@ static void show_settings_dialog(HWND parent, WidgetData *wd)
 
     /* Use DialogBoxIndirectParam-like approach with CreateWindow */
     /* Actually, let's use a simple modal loop */
-    HWND hDlg = CreateWindowExA(0, "ZabbixSettingsDlg", "Widget Settings",
+    HWND hDlg = CreateWindowExA(0, "ZabbixSettingsDlg", "",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
         CW_USEDEFAULT, CW_USEDEFAULT, 250, 300,
         parent, NULL, GetModuleHandle(NULL), &sd);
 
     if (!hDlg) return;
+    i18n_set_window_title(hDlg, S_WIDGET_SETTINGS_TITLE);
 
     /* Center on parent's monitor (multi-monitor aware) */
     {

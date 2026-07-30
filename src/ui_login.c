@@ -4,6 +4,7 @@
 #include "ui_login.h"
 #include "zabbix_api.h"
 #include "config.h"
+#include "i18n.h"
 
 #define IDC_URL_EDIT     4001
 #define IDC_USER_EDIT    4002
@@ -39,49 +40,26 @@ static LRESULT CALLBACK LoginProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             HFONT hFont = GetFont();
 
             /* Labels */
-            HWND hLbl;
-            hLbl = CreateWindowExA(0, "STATIC", "Zabbix URL:", WS_CHILD | WS_VISIBLE,
-                15, 15, 100, 18, hwnd, NULL, NULL, NULL);
-            SendMessageA(hLbl, WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            hLbl = CreateWindowExA(0, "STATIC", "(http/https)", WS_CHILD | WS_VISIBLE,
-                15, 32, 100, 14, hwnd, NULL, NULL, NULL);
-            SendMessageA(hLbl, WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            hLbl = CreateWindowExA(0, "STATIC", "Username:", WS_CHILD | WS_VISIBLE,
-                15, 50, 100, 18, hwnd, NULL, NULL, NULL);
-            SendMessageA(hLbl, WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            hLbl = CreateWindowExA(0, "STATIC", "Password:", WS_CHILD | WS_VISIBLE,
-                15, 85, 100, 18, hwnd, NULL, NULL, NULL);
-            SendMessageA(hLbl, WM_SETFONT, (WPARAM)hFont, TRUE);
+            i18n_create_label(hwnd, S_ZABBIX_URL, 15, 15, 100, 18, hFont);
+            i18n_create_label(hwnd, S_HTTP_HTTPS, 15, 32, 100, 14, hFont);
+            i18n_create_label(hwnd, S_USERNAME, 15, 50, 100, 18, hFont);
+            i18n_create_label(hwnd, S_PASSWORD, 15, 85, 100, 18, hFont);
 
             /* Edit boxes */
-            ld->hUrl = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                120, 12, 300, 24, hwnd, (HMENU)(INT_PTR)IDC_URL_EDIT, NULL, NULL);
-            SendMessageA(ld->hUrl, WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            ld->hUser = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                120, 47, 300, 24, hwnd, (HMENU)(INT_PTR)IDC_USER_EDIT, NULL, NULL);
-            SendMessageA(ld->hUser, WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            ld->hPass = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_PASSWORD,
+            ld->hUrl = i18n_create_edit(hwnd, "", 120, 12, 300, 24, IDC_URL_EDIT, hFont);
+            ld->hUser = i18n_create_edit(hwnd, "", 120, 47, 300, 24, IDC_USER_EDIT, hFont);
+            ld->hPass = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_PASSWORD,
                 120, 82, 300, 24, hwnd, (HMENU)(INT_PTR)IDC_PASS_EDIT, NULL, NULL);
-            SendMessageA(ld->hPass, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessageW(ld->hPass, WM_SETFONT, (WPARAM)hFont, TRUE);
 
             /* Status label */
-            ld->hStatus = CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE,
-                15, 120, 400, 20, hwnd, (HMENU)(INT_PTR)IDC_STATUS_LABEL, NULL, NULL);
-            SendMessageA(ld->hStatus, WM_SETFONT, (WPARAM)hFont, TRUE);
+            ld->hStatus = i18n_create_label(hwnd, S_LOADING, 15, 120, 400, 20, hFont);
+            i18n_set_window_title(hwnd, S_LOGIN_TITLE);
 
             /* Buttons */
-            CreateWindowExA(0, "BUTTON", "Login", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                220, 155, 90, 30, hwnd, (HMENU)(INT_PTR)IDC_LOGIN_BTN, NULL, NULL);
-            SendMessageA(GetDlgItem(hwnd, IDC_LOGIN_BTN), WM_SETFONT, (WPARAM)hFont, TRUE);
-
-            CreateWindowExA(0, "BUTTON", "Cancel", WS_CHILD | WS_VISIBLE,
-                320, 155, 90, 30, hwnd, (HMENU)(INT_PTR)IDC_CANCEL_BTN, NULL, NULL);
-            SendMessageA(GetDlgItem(hwnd, IDC_CANCEL_BTN), WM_SETFONT, (WPARAM)hFont, TRUE);
+            i18n_create_button(hwnd, S_LOGIN, BS_DEFPUSHBUTTON, 220, 155, 90, 30, IDC_LOGIN_BTN, hFont);
+            i18n_create_button(hwnd, S_CANCEL, 0, 320, 155, 90, 30, IDC_CANCEL_BTN, hFont);
 
             /* Pre-fill from config */
             if (ld->config->zabbix_url[0])
@@ -114,11 +92,11 @@ static LRESULT CALLBACK LoginProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                     GetWindowTextA(ld->hPass, pass, sizeof(pass));
 
                     if (!url[0] || !user[0]) {
-                        SetWindowTextA(ld->hStatus, "Please fill in URL and username");
+                        set_text_utf8(ld->hStatus, i18n_str(S_FILL_URL_USER));
                         return 0;
                     }
 
-                    SetWindowTextA(ld->hStatus, "Connecting...");
+                    set_text_utf8(ld->hStatus, i18n_str(S_CONNECTING));
                     UpdateWindow(ld->hStatus);
 
                     int ret = zabbix_api_login(ld->api, url, user, pass);
@@ -136,9 +114,7 @@ static LRESULT CALLBACK LoginProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                         ld->result = 1;
                         DestroyWindow(hwnd);
                     } else {
-                        char errmsg[600];
-                        snprintf(errmsg, sizeof(errmsg), "Login failed: %s", zabbix_api_error());
-                        SetWindowTextA(ld->hStatus, errmsg);
+                        i18n_set_text_fmt(ld->hStatus, i18n_str(S_LOGIN_FAILED_FMT), zabbix_api_error());
                     }
                     break;
                 }
@@ -183,12 +159,13 @@ int ui_login_show(HINSTANCE hInstance, HWND parent, AppConfig *config, ZabbixAPI
     ld.api = api;
     ld.result = 0;
 
-    HWND hwnd = CreateWindowExA(0, "ZabbixLoginDlg", "Zabbix Login",
+    HWND hwnd = CreateWindowExA(0, "ZabbixLoginDlg", "",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
         CW_USEDEFAULT, CW_USEDEFAULT, 440, 200,
         parent, NULL, hInstance, &ld);
 
     if (!hwnd) return 0;
+    i18n_set_window_title(hwnd, S_LOGIN_TITLE);
 
     /* Center on cursor's monitor (multi-monitor aware) */
     {
