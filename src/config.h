@@ -28,6 +28,7 @@ typedef struct {
 
     /* Behavior */
     int always_on_top;
+    int lock_position;    /* 1 = locked, click-through (mouse passes through) */
     int refresh_interval;  /* seconds */
 
     /* Gauge specific */

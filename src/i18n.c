@@ -60,6 +60,7 @@ static const char *const g_strings[S_COUNT][2] = {
 
     /* ---- Widget context menu + settings ---- */
     [S_ALWAYS_ON_TOP]     = { "Always on Top",              "\xe7\xbd\xae\xe9\xa1\xb6" },
+    [S_LOCK_POSITION]     = { "Lock Position",              "\xe9\x94\x81\xe5\xae\x9a\xe4\xbd\x8d\xe7\xbd\xae" },
     [S_CONFIGURE]         = { "Configure...",               "\xe8\xae\xbe\xe7\xbd\xae..." },
     [S_REFRESH_NOW]       = { "Refresh Now",                "\xe7\xab\x8b\xe5\x8d\xb3\xe5\x88\xb7\xe6\x96\xb0" },
     [S_REMOVE_WIDGET]     = { "Remove Widget",              "\xe7\xa7\xbb\xe9\x99\xa4\xe7\xbb\x84\xe4\xbb\xb6" },
@@ -81,6 +82,7 @@ static const char *const g_strings[S_COUNT][2] = {
     [S_ADD_WIDGET_ELLIPSIS] = { "Add Widget...",            "\xe6\xb7\xbb\xe5\x8a\xa0\xe7\xbb\x84\xe4\xbb\xb6..." },
     [S_LOGIN_SETTINGS]     = { "Login Settings...",          "\xe7\x99\xbb\xe5\xbd\x95\xe8\xae\xbe\xe7\xbd\xae..." },
     [S_REFRESH_ALL]        = { "Refresh All",               "\xe5\x88\xb7\xe6\x96\xb0\xe5\x85\xa8\xe9\x83\xa8" },
+    [S_UNLOCK_ALL]        = { "Unlock All",                 "\xe5\x85\xa8\xe9\x83\xa8\xe8\xa7\xa3\xe9\x94\x81" },
     [S_EXIT]              = { "Exit",                       "\xe9\x80\x80\xe5\x87\xba" },
     [S_TRAY_TIP]         = { "Zabbix Desktop Info",        "Zabbix \xe6\xa1\x8c\xe9\x9d\xa2\xe7\x9b\x91\xe6\x8e\xa7" },
     [S_NOT_CONNECTED]    = { "Not connected to Zabbix. Please login first.", "\xe6\x9c\xaa\xe8\xbf\x9e\xe6\x8e\xa5\xe5\x88\xb0 Zabbix\xef\xbc\x8c\xe8\xaf\xb7\xe5\x85\x88\xe7\x99\xbb\xe5\xbd\x95\xe3\x80\x82" },

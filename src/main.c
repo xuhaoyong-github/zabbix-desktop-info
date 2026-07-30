@@ -25,6 +25,7 @@
 #define IDM_TRAY_ADD      7001
 #define IDM_TRAY_LOGIN    7002
 #define IDM_TRAY_REFRESH  7003
+#define IDM_TRAY_UNLOCK_ALL 7005
 #define IDM_TRAY_EXIT     7004
 
 #define MAX_WIDGET_WNDS 64
@@ -72,6 +73,7 @@ static void show_tray_menu(HWND hwnd)
     AppendMenuA(hMenu, MF_SEPARATOR, 0, NULL);
     i18n_append_menu(hMenu, MF_STRING, IDM_TRAY_LOGIN, S_LOGIN_SETTINGS);
     i18n_append_menu(hMenu, MF_STRING, IDM_TRAY_REFRESH, S_REFRESH_ALL);
+    i18n_append_menu(hMenu, MF_STRING, IDM_TRAY_UNLOCK_ALL, S_UNLOCK_ALL);
     AppendMenuA(hMenu, MF_SEPARATOR, 0, NULL);
     i18n_append_menu(hMenu, MF_STRING, IDM_TRAY_EXIT, S_EXIT);
 
@@ -151,6 +153,12 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 case IDM_TRAY_REFRESH: {
                     for (int i = 0; i < g_widget_hwnd_count; i++)
                         widget_refresh(g_widget_hwnds[i]);
+                    break;
+                }
+
+                case IDM_TRAY_UNLOCK_ALL: {
+                    for (int i = 0; i < g_widget_hwnd_count; i++)
+                        widget_set_locked(g_widget_hwnds[i], 0);
                     break;
                 }
 

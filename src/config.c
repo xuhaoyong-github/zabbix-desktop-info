@@ -147,6 +147,7 @@ static void parse_widget(JsonValue *jw, WidgetConfig *wc)
     wc->height = (int)json_number(json_object_get(jw, "height"));
 
     wc->always_on_top = (int)json_number(json_object_get(jw, "always_on_top"));
+    wc->lock_position = (int)json_number(json_object_get(jw, "lock_position"));
     wc->refresh_interval = (int)json_number(json_object_get(jw, "refresh_interval"));
     if (wc->refresh_interval <= 0) wc->refresh_interval = 30;
 
@@ -190,6 +191,7 @@ static JsonValue *widget_to_json(const WidgetConfig *wc)
     json_object_set(jw, "width", json_new_number((double)wc->width));
     json_object_set(jw, "height", json_new_number((double)wc->height));
     json_object_set(jw, "always_on_top", json_new_number((double)wc->always_on_top));
+    json_object_set(jw, "lock_position", json_new_number((double)wc->lock_position));
     json_object_set(jw, "refresh_interval", json_new_number((double)wc->refresh_interval));
     json_object_set(jw, "gauge_min", json_new_number(wc->gauge_min));
     json_object_set(jw, "gauge_max", json_new_number(wc->gauge_max));

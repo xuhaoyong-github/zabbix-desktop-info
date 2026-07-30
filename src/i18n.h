@@ -44,6 +44,7 @@ typedef enum {
 
     /* ---- Widget context menu + settings ---- */
     S_ALWAYS_ON_TOP,
+    S_LOCK_POSITION,
     S_CONFIGURE,
     S_REFRESH_NOW,
     S_REMOVE_WIDGET,
@@ -65,6 +66,7 @@ typedef enum {
     S_ADD_WIDGET_ELLIPSIS,
     S_LOGIN_SETTINGS,
     S_REFRESH_ALL,
+    S_UNLOCK_ALL,
     S_EXIT,
     S_TRAY_TIP,
     S_NOT_CONNECTED,

@@ -37,6 +37,9 @@ void widget_set_config_index(HWND hwnd, int index);
 /* Set always-on-top */
 void widget_set_topmost(HWND hwnd, int topmost);
 
+/* Lock widget position (click-through). locked=1 enables WS_EX_TRANSPARENT. */
+void widget_set_locked(HWND hwnd, int locked);
+
 #ifdef __cplusplus
 }
 #endif

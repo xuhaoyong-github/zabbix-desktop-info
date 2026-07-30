@@ -67,12 +67,82 @@ static void center_on_cursor_monitor(int *x, int *y, int width, int height)
 
 #define WM_DATA_UPDATED   (WM_USER + 1)
 #define WM_REFRESH_WIDGET (WM_USER + 2)
-#define TIMER_ANTI_MINIMIZE 1
 
 #define IDM_TOGGLE_TOPMOST  2001
 #define IDM_CONFIGURE       2002
 #define IDM_REFRESH_NOW     2003
 #define IDM_REMOVE          2004
+#define IDM_LOCK_POSITION   2005
+
+/* Cached desktop host window so Win+D "Show Desktop" never minimizes widgets */
+static HWND g_desktop_host = NULL;
+
+/* Locate the desktop window that hosts the desktop icons (WorkerW / SHELLDLL_DefView /
+ * Progman). Pinning a widget as a child of this window makes it part of the desktop,
+ * so "Show Desktop" (Win+D) no longer minimizes it. */
+static HWND FindDesktopHost(void)
+{
+    HWND progman = FindWindowA("Progman", "Program Manager");
+    if (!progman) return NULL;
+    /* Enumerate WorkerW windows; the one hosting SHELLDLL_DefView is the real desktop */
+    HWND hw = NULL, worker = NULL;
+    while ((hw = FindWindowExA(NULL, hw, "WorkerW", NULL)) != NULL) {
+        if (FindWindowExA(hw, NULL, "SHELLDLL_DefView", NULL)) {
+            worker = hw;
+            break;
+        }
+    }
+    if (worker) return worker;
+    if (FindWindowExA(progman, NULL, "SHELLDLL_DefView", NULL))
+        return progman;
+    return progman;
+}
+
+/* Move a widget to a SCREEN position, converting to parent-client coordinates
+ * if the widget is currently parented to the desktop host. */
+static void move_widget_to_screen_pos(HWND hwnd, int sx, int sy)
+{
+    POINT pt = { sx, sy };
+    HWND parent = GetAncestor(hwnd, GA_PARENT);
+    if (parent && parent != GetDesktopWindow())
+        ScreenToClient(parent, &pt);
+    SetWindowPos(hwnd, NULL, pt.x, pt.y, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+/* Apply pin mode:
+ *  - topmost   : top-level window + HWND_TOPMOST (floats above everything)
+ *  - !topmost  : child of the desktop host (pinned to desktop, Win+D immune)
+ * Screen position is preserved across re-parenting. */
+static void widget_apply_pin(HWND hwnd, int topmost)
+{
+    RECT rc;
+    GetWindowRect(hwnd, &rc); /* always screen coords */
+
+    if (topmost) {
+        if (GetAncestor(hwnd, GA_PARENT) != GetDesktopWindow())
+            SetParent(hwnd, NULL);
+        SetWindowPos(hwnd, HWND_TOPMOST, rc.left, rc.top, 0, 0,
+                     SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    } else {
+        if (!g_desktop_host || !IsWindow(g_desktop_host))
+            g_desktop_host = FindDesktopHost();
+        if (g_desktop_host) {
+            if (GetAncestor(hwnd, GA_PARENT) != g_desktop_host)
+                SetParent(hwnd, g_desktop_host);
+            POINT pt = { rc.left, rc.top };
+            ScreenToClient(g_desktop_host, &pt);
+            /* HWND_TOP within the desktop layer keeps the widget above the
+             * icon layer (SHELLDLL_DefView) but below all normal windows. */
+            SetWindowPos(hwnd, HWND_TOP, pt.x, pt.y, 0, 0,
+                         SWP_NOACTIVATE | SWP_NOSIZE | SWP_SHOWWINDOW);
+        } else {
+            /* No desktop host found: stay top-level, bottom of z-order */
+            SetWindowPos(hwnd, HWND_BOTTOM, rc.left, rc.top, 0, 0,
+                         SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+    }
+}
 
 /* Settings dialog control IDs */
 #define IDC_REFRESH_EDIT    3001
@@ -275,12 +345,18 @@ static void show_context_menu(HWND hwnd, WidgetData *wd, int x, int y)
     HMENU hMenu = CreatePopupMenu();
     i18n_append_menu(hMenu, MF_STRING | (wd->config.always_on_top ? MF_CHECKED : 0),
                 IDM_TOGGLE_TOPMOST, S_ALWAYS_ON_TOP);
+    i18n_append_menu(hMenu, MF_STRING | (wd->config.lock_position ? MF_CHECKED : 0),
+                IDM_LOCK_POSITION, S_LOCK_POSITION);
     i18n_append_menu(hMenu, MF_STRING, IDM_CONFIGURE, S_CONFIGURE);
     i18n_append_menu(hMenu, MF_STRING, IDM_REFRESH_NOW, S_REFRESH_NOW);
     AppendMenuA(hMenu, MF_SEPARATOR, 0, NULL);
     i18n_append_menu(hMenu, MF_STRING, IDM_REMOVE, S_REMOVE_WIDGET);
 
+    /* The widget is non-activatable (WS_EX_NOACTIVATE); bring it to the
+     * foreground so the popup menu dismisses correctly when clicking away */
+    SetForegroundWindow(hwnd);
     TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, x, y, 0, hwnd, NULL);
+    PostMessage(hwnd, WM_NULL, 0, 0);
     DestroyMenu(hMenu);
 }
 
@@ -614,13 +690,11 @@ static LRESULT CALLBACK WidgetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             InitializeCriticalSection(&wd->cs);
             wd->refresh_event = CreateEventA(NULL, TRUE, FALSE, NULL);
 
-            /* Set topmost if needed */
-            if (wd->config.always_on_top)
-                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-
-            /* Anti-minimize timer: check every 200ms if window was minimized
-             * (e.g. by Win+D "Show Desktop") and restore it */
-            SetTimer(hwnd, TIMER_ANTI_MINIMIZE, 200, NULL);
+            /* Click-through when position is locked */
+            if (wd->config.lock_position) {
+                LONG ex = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+                SetWindowLongPtr(hwnd, GWL_EXSTYLE, ex | WS_EX_TRANSPARENT);
+            }
 
             /* Initial paint */
             widget_paint(wd);
@@ -641,45 +715,6 @@ static LRESULT CALLBACK WidgetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             return 0;
         }
 
-        case WM_WINDOWPOSCHANGING: {
-            /* Block minimization from Win+D / Show Desktop.
-             * When a window is being minimized, the WINDOWPOS has
-             * SWP_FRAMECHANGED set and SWP_NOSIZE is NOT set (size is
-             * changing to the minimized dimensions). Our own SetWindowPos
-             * calls always include SWP_NOMOVE | SWP_NOSIZE, so they
-             * won't trigger this path. */
-            WINDOWPOS *lpwp = (WINDOWPOS *)lParam;
-            if ((lpwp->flags & SWP_FRAMECHANGED) && !(lpwp->flags & SWP_NOSIZE)) {
-                lpwp->flags |= SWP_NOSIZE | SWP_NOMOVE;
-            }
-            return 0;
-        }
-
-        case WM_SIZE: {
-            /* Fallback: if the window somehow got minimized, restore it */
-            if (wParam == SIZE_MINIMIZED) {
-                ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                if (wd && wd->config.always_on_top)
-                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            }
-            return 0;
-        }
-
-        case WM_TIMER: {
-            /* Anti-minimize: check if window was iconified (e.g. Win+D)
-             * and restore it while preserving topmost */
-            if (wParam == TIMER_ANTI_MINIMIZE) {
-                if (IsIconic(hwnd)) {
-                    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                    if (wd && wd->config.always_on_top)
-                        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-                }
-            }
-            return 0;
-        }
-
         case WM_NCHITTEST: {
             /* Allow clicking through transparent areas */
             if (wd && wd->bits) {
@@ -697,18 +732,22 @@ static LRESULT CALLBACK WidgetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             return HTTRANSPARENT;
         }
 
+        case WM_MOUSEACTIVATE:
+            /* Never take activation: prevents the desktop icon layer from being
+             * pushed above the widget when it is pinned to the desktop. */
+            return MA_NOACTIVATE;
+
         case WM_LBUTTONDOWN: {
-            /* Start dragging */
+            /* Locked widgets are click-through; ignore mouse entirely */
+            if (wd && wd->config.lock_position)
+                return 0;
+            /* Start dragging - track with global cursor coords so it works
+             * both as a top-level window and as a child of the desktop host */
             wd->dragging = 1;
             SetCapture(hwnd);
-            wd->drag_start.x = GET_X_LPARAM(lParam);
-            wd->drag_start.y = GET_Y_LPARAM(lParam);
-            POINT screen;
-            screen.x = GET_X_LPARAM(lParam);
-            screen.y = GET_Y_LPARAM(lParam);
-            ClientToScreen(hwnd, &screen);
+            GetCursorPos(&wd->drag_start);
             RECT rc;
-            GetWindowRect(hwnd, &rc);
+            GetWindowRect(hwnd, &rc); /* screen coords in all cases */
             wd->drag_origin.x = rc.left;
             wd->drag_origin.y = rc.top;
             return 0;
@@ -716,15 +755,11 @@ static LRESULT CALLBACK WidgetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
         case WM_MOUSEMOVE: {
             if (wd && wd->dragging) {
-                POINT pt;
-                pt.x = GET_X_LPARAM(lParam);
-                pt.y = GET_Y_LPARAM(lParam);
-                ClientToScreen(hwnd, &pt);
-                RECT rc;
-                GetWindowRect(hwnd, &rc);
-                int nx = rc.left + (pt.x - rc.left) - wd->drag_start.x;
-                int ny = rc.top + (pt.y - rc.top) - wd->drag_start.y;
-                SetWindowPos(hwnd, NULL, nx, ny, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+                POINT cur;
+                GetCursorPos(&cur);
+                int nx = wd->drag_origin.x + (cur.x - wd->drag_start.x);
+                int ny = wd->drag_origin.y + (cur.y - wd->drag_start.y);
+                move_widget_to_screen_pos(hwnd, nx, ny);
             }
             return 0;
         }
@@ -757,6 +792,12 @@ static LRESULT CALLBACK WidgetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                 case IDM_TOGGLE_TOPMOST: {
                     wd->config.always_on_top = !wd->config.always_on_top;
                     widget_set_topmost(hwnd, wd->config.always_on_top);
+                    sync_and_save(wd);
+                    break;
+                }
+                case IDM_LOCK_POSITION: {
+                    wd->config.lock_position = !wd->config.lock_position;
+                    widget_set_locked(hwnd, wd->config.lock_position);
                     sync_and_save(wd);
                     break;
                 }
@@ -794,8 +835,6 @@ static LRESULT CALLBACK WidgetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         case WM_DESTROY: {
             /* Stop worker thread */
             if (wd) {
-                wd->running = 0;
-                KillTimer(hwnd, TIMER_ANTI_MINIMIZE);
                 wd->running = 0;
                 if (wd->thread) {
                     WaitForSingleObject(wd->thread, 5000);
@@ -853,8 +892,8 @@ HWND widget_create(HINSTANCE hInstance, ZabbixAPI *api,
     wd->config_index = config_index;
     wd->hMainWnd = hMainWnd;
 
-    DWORD exStyle = WS_EX_LAYERED | WS_EX_TOOLWINDOW;
-    if (wc->always_on_top) exStyle |= WS_EX_TOPMOST;
+    DWORD exStyle = WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+    /* Pin mode (topmost vs desktop) is applied by widget_apply_pin() after creation */
 
     /* If position is (0,0) or not visible on any monitor, center on cursor's monitor */
     if ((x == 0 && y == 0) || !is_position_visible(x, y, wc->width, wc->height)) {
@@ -871,7 +910,12 @@ HWND widget_create(HINSTANCE hInstance, ZabbixAPI *api,
         return NULL;
     }
 
-    ShowWindow(hwnd, SW_SHOW);
+    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+
+    /* Apply pin mode AFTER the window is fully created and shown:
+     * topmost -> floating TOPMOST window; otherwise -> pinned to desktop
+     * (child of WorkerW/Progman, immune to Win+D). */
+    widget_apply_pin(hwnd, wc->always_on_top);
     return hwnd;
 }
 
@@ -898,8 +942,24 @@ int widget_get_config_index(HWND hwnd)
 
 void widget_set_topmost(HWND hwnd, int topmost)
 {
-    SetWindowPos(hwnd, topmost ? HWND_TOPMOST : HWND_NOTOPMOST,
-                 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    /* topmost  -> floating top-level TOPMOST window (covers normal windows)
+     * !topmost -> pinned onto the desktop (survives Win+D, sits above icons) */
+    widget_apply_pin(hwnd, topmost);
+}
+
+void widget_set_locked(HWND hwnd, int locked)
+{
+    WidgetData *wd = (WidgetData *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    LONG ex = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    if (locked)
+        ex |= WS_EX_TRANSPARENT;
+    else
+        ex &= ~WS_EX_TRANSPARENT;
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, ex);
+    if (wd) {
+        wd->config.lock_position = locked;
+        sync_and_save(wd);
+    }
 }
 
 void widget_set_config_index(HWND hwnd, int index)
