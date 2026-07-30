@@ -11,6 +11,7 @@
 #include "config.h"
 #include "zabbix_api.h"
 #include "i18n.h"
+#include "resource.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
@@ -273,6 +274,15 @@ static DWORD WINAPI widget_worker(LPVOID param)
                 Sleep(1000);
         }
     }
+
+    /* Thread is exiting: free per-widget resources HERE (not in WM_DESTROY).
+       WM_DESTROY may time out before this thread finishes a blocking network
+       call, so freeing wd there would cause a use-after-free. */
+    if (wd->history) free(wd->history);
+    if (wd->api) zabbix_api_abort(wd->api);   /* last-chance interrupt */
+    DeleteCriticalSection(&wd->cs);
+    if (wd->refresh_event) CloseHandle(wd->refresh_event);
+    free(wd);
     return 0;
 }
 
@@ -620,6 +630,7 @@ static void show_settings_dialog(HWND parent, WidgetData *wd)
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = SettingsProc;
         wc.hInstance = GetModuleHandle(NULL);
+        wc.hIcon = LoadIconA(GetModuleHandle(NULL), MAKEINTRESOURCEA(IDI_APP_ICON));
         wc.hCursor = LoadCursor(NULL, IDC_ARROW);
         wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
         wc.lpszClassName = "ZabbixSettingsDlg";
@@ -833,20 +844,19 @@ static LRESULT CALLBACK WidgetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         }
 
         case WM_DESTROY: {
-            /* Stop worker thread */
-            if (wd) {
+            /* Stop worker thread.
+             * wd and its members are freed by the worker thread on exit, so we
+             * must NOT free them here: if a network call is in flight, the thread
+             * outlives this WaitForSingleObject and would touch freed memory.
+             * We only release the window-owned GDI render buffers. */
+            if (wd && wd->thread) {
                 wd->running = 0;
-                if (wd->thread) {
-                    WaitForSingleObject(wd->thread, 5000);
-                    CloseHandle(wd->thread);
-                }
-                /* Free resources */
+                if (wd->refresh_event) SetEvent(wd->refresh_event); /* wake from sleep loop */
+                if (wd->api) zabbix_api_abort(wd->api);            /* interrupt in-flight HTTP */
+                WaitForSingleObject(wd->thread, 3000);
+                CloseHandle(wd->thread);
                 if (wd->render_dc) DeleteDC(wd->render_dc);
                 if (wd->render_bmp) DeleteObject(wd->render_bmp);
-                if (wd->history) free(wd->history);
-                if (wd->refresh_event) CloseHandle(wd->refresh_event);
-                DeleteCriticalSection(&wd->cs);
-                free(wd);
             }
             SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
             return 0;
@@ -869,6 +879,7 @@ int widget_register_class(HINSTANCE hInstance)
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = WidgetProc;
     wc.hInstance = hInstance;
+    wc.hIcon = LoadIconA(hInstance, MAKEINTRESOURCEA(IDI_APP_ICON));
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.lpszClassName = WIDGET_CLASS;
     return RegisterClassExA(&wc) ? 0 : -1;

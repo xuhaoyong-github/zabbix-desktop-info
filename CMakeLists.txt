@@ -17,6 +17,7 @@ set(SOURCES
     src/ui_login.c
     src/ui_select.c
     src/main.c
+    src/resource.rc
 )
 
 # WIN32 = subsystem:windows (no console)
@@ -35,6 +36,7 @@ target_link_libraries(zabbix-desktop PRIVATE
     gdi32
     ole32
     uuid
+    crypt32
 )
 
 # Optimization flags

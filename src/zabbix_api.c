@@ -52,6 +52,8 @@ static void set_error(const char *msg)
 void zabbix_api_init(ZabbixAPI *api)
 {
     memset(api, 0, sizeof(ZabbixAPI));
+    InitializeCriticalSection(&api->request_cs);
+    api->active_request = NULL;
 }
 
 /* Parse URL into scheme, host, port, path */
@@ -115,8 +117,21 @@ static int parse_url(const char *url, UrlParts *u)
     return 0;
 }
 
+/* Close the request handle exactly once, even if zabbix_api_abort raced us. */
+static void close_request(ZabbixAPI *api, HINTERNET hRequest)
+{
+    int do_close = 0;
+    EnterCriticalSection(&api->request_cs);
+    if (api->active_request == hRequest) {
+        api->active_request = NULL;
+        do_close = 1;
+    }
+    LeaveCriticalSection(&api->request_cs);
+    if (do_close) InternetCloseHandle(hRequest);
+}
+
 /* Perform HTTP POST and return response body (caller frees) */
-static char *http_post(const char *url, const char *body)
+static char *http_post(ZabbixAPI *api, const char *url, const char *body)
 {
     UrlParts u;
     parse_url(url, &u);
@@ -165,6 +180,11 @@ static char *http_post(const char *url, const char *body)
         return NULL;
     }
 
+    /* Register the active request so it can be interrupted (see zabbix_api_abort) */
+    EnterCriticalSection(&api->request_cs);
+    api->active_request = hRequest;
+    LeaveCriticalSection(&api->request_cs);
+
     /* For HTTPS: ignore all certificate errors (self-signed, unknown CA, etc.) */
     if (is_https) {
         DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
@@ -183,7 +203,7 @@ static char *http_post(const char *url, const char *body)
         DWORD err = GetLastError();
         snprintf(g_error, sizeof(g_error), "HttpSendRequest failed (err=%lu)", err);
         debug_log("  HttpSendRequest FAILED: err=%lu", err);
-        InternetCloseHandle(hRequest);
+        close_request(api, hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hSession);
         return NULL;
@@ -194,7 +214,7 @@ static char *http_post(const char *url, const char *body)
     size_t buf_cap = 8192;
     char *response = (char *)malloc(buf_cap);
     if (!response) {
-        InternetCloseHandle(hRequest);
+        close_request(api, hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hSession);
         return NULL;
@@ -212,7 +232,7 @@ static char *http_post(const char *url, const char *body)
     }
     response[total_size] = '\0';
 
-    InternetCloseHandle(hRequest);
+    close_request(api, hRequest);
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hSession);
 
@@ -241,7 +261,7 @@ static JsonValue *api_call(ZabbixAPI *api, const char *method, JsonValue *params
     debug_log(">>> %s (id=%d, auth=%s): %s", method, id,
               (use_auth && api->auth_token[0]) ? "yes" : "no", body);
 
-    char *resp_text = http_post(api->url, body);
+    char *resp_text = http_post(api, api->url, body);
     free(body);
 
     if (!resp_text) {
@@ -561,4 +581,21 @@ int zabbix_api_get_item_info(ZabbixAPI *api, const char *item_id, ZabbixItem *in
     strncpy(info->id, item_id, sizeof(info->id) - 1);
     json_free(result);
     return 0;
+}
+
+void zabbix_api_abort(ZabbixAPI *api)
+{
+    HINTERNET h = NULL;
+    EnterCriticalSection(&api->request_cs);
+    if (api->active_request) {
+        h = api->active_request;
+        api->active_request = NULL;
+    }
+    LeaveCriticalSection(&api->request_cs);
+    if (h) {
+        /* Closing the request handle from another thread forces the blocking
+         * InternetReadFile/HttpSendRequest to fail immediately. */
+        debug_log("Aborting in-flight HTTP request");
+        InternetCloseHandle(h);
+    }
 }

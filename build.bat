@@ -28,6 +28,10 @@ echo === Compiling more C files ===
 %GCC% %FLAGS% -c src\ui_select.c  -o %BUILD%\ui_select.o  || goto :error
 %GCC% %FLAGS% -c src\main.c       -o %BUILD%\main.o       || goto :error
 
+echo === Compiling resources ===
+
+C:\MinGW\bin\windres.exe -i src\resource.rc -O coff -o %BUILD%\resource.o || goto :error
+
 echo === Linking ===
 
 %GPP% -o %OUT% %BUILD%\*.o %LIBS% -mwindows || goto :error

@@ -1,6 +1,8 @@
 #ifndef ZABBIX_API_H
 #define ZABBIX_API_H
 
+#include <windows.h>
+#include <wininet.h>
 #include "json.h"
 
 /* Zabbix host info */
@@ -33,6 +35,9 @@ typedef struct {
     char password[128];
     char auth_token[256]; /* session token from user.login */
     int  connected;
+    /* Used to interrupt an in-flight HTTP request (e.g. on app exit) */
+    HINTERNET active_request;   /* current request handle, or NULL */
+    CRITICAL_SECTION request_cs;
 } ZabbixAPI;
 
 /* Initialize API context */
@@ -61,5 +66,9 @@ int zabbix_api_get_item_info(ZabbixAPI *api, const char *item_id, ZabbixItem *in
 
 /* Last error message */
 const char *zabbix_api_error(void);
+
+/* Interrupt any in-flight HTTP request for this API context.
+ * Safe to call from a different thread than the one doing the request. */
+void zabbix_api_abort(ZabbixAPI *api);
 
 #endif /* ZABBIX_API_H */

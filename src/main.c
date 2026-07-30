@@ -17,6 +17,7 @@
 #include "ui_login.h"
 #include "ui_select.h"
 #include "i18n.h"
+#include "resource.h"
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -205,7 +206,7 @@ static int setup_tray_icon(HWND hwnd)
     g_nid.uID = TRAY_ICON_ID;
     g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYICON;
-    g_nid.hIcon = LoadIconA(NULL, IDI_APPLICATION);
+    g_nid.hIcon = LoadIconA(g_hInstance, MAKEINTRESOURCEA(IDI_APP_ICON));
     {
         char *tip = utf8_to_acp(i18n_str(S_TRAY_TIP));
         if (tip) {
@@ -254,6 +255,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR cmdLine, int show
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = MainProc;
     wc.hInstance = hInstance;
+    wc.hIcon = LoadIconA(hInstance, MAKEINTRESOURCEA(IDI_APP_ICON));
     wc.lpszClassName = "ZabbixDesktopMain";
     if (!RegisterClassExA(&wc)) {
         i18n_message_box(NULL, S_FAILED_REGISTER_CLASS, S_ERROR, MB_ICONERROR);
