@@ -75,6 +75,7 @@ typedef enum {
     S_FAILED_CREATE_MAIN,
     S_RIGHT_CLICK_ADD,
     S_BALLOON_TITLE,
+    S_ALREADY_RUNNING,
 
     S_COUNT
 } StrKey;

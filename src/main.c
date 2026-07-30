@@ -40,6 +40,7 @@ static HWND g_hMainWnd = NULL;
 static HINSTANCE g_hInstance = NULL;
 static NOTIFYICONDATAA g_nid;
 static int g_exiting = 0;
+static HANDLE g_hSingleInstanceMutex = NULL;
 
 /* Find and remove a widget HWND from the array */
 static void remove_widget_hwnd(HWND hwnd)
@@ -225,6 +226,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR cmdLine, int show
     /* Initialize i18n (auto-detect OS language) */
     i18n_init();
 
+    /* Single-instance guard: bail out if another instance is already running */
+    g_hSingleInstanceMutex = CreateMutexA(NULL, FALSE,
+        "ZabbixDesktopInfo_SingleInstanceMutex");
+    if (!g_hSingleInstanceMutex) {
+        i18n_message_box(NULL, S_FAILED_REGISTER_CLASS, S_ERROR, MB_ICONERROR);
+        return 1;
+    }
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        i18n_message_box(NULL, S_ALREADY_RUNNING, S_TRAY_TIP, MB_ICONINFORMATION);
+        CloseHandle(g_hSingleInstanceMutex);
+        g_hSingleInstanceMutex = NULL;
+        return 0;
+    }
+
     /* Initialize common controls */
     INITCOMMONCONTROLSEX icc;
     icc.dwSize = sizeof(icc);
@@ -325,6 +340,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR cmdLine, int show
     /* Save config */
     config_save(&g_config, config_path);
     render_shutdown();
+
+    if (g_hSingleInstanceMutex) {
+        CloseHandle(g_hSingleInstanceMutex);
+        g_hSingleInstanceMutex = NULL;
+    }
 
     return (int)msg.wParam;
 }
