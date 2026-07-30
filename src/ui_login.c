@@ -22,7 +22,15 @@ typedef struct {
 
 static HFONT GetFont(void)
 {
-    return CreateFontA(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    /* Match the system tray context-menu font size exactly, consistent with
+       ui_select.c GetFont and widget.c GetDlgFont. */
+    NONCLIENTMETRICS ncm;
+    memset(&ncm, 0, sizeof(ncm));
+    ncm.cbSize = sizeof(ncm);
+    if (SystemParametersInfoA(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0))
+        return CreateFontIndirectA(&ncm.lfMenuFont);
+    /* Fallback: approximate menu font (~12px character height) */
+    return CreateFontA(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, FF_SWISS, "Segoe UI");
 }
