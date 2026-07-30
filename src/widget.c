@@ -216,11 +216,19 @@ static DWORD WINAPI widget_worker(LPVOID param)
     WidgetData *wd = (WidgetData *)param;
 
     while (wd->running) {
+        /* Snapshot config under lock. The settings dialog (UI thread) writes
+         * these fields without the lock otherwise, which would let us read a
+         * torn copy of e.g. item_id here. */
+        WidgetConfig cfg;
+        EnterCriticalSection(&wd->cs);
+        cfg = wd->config;
+        LeaveCriticalSection(&wd->cs);
+
         if (wd->api && wd->api->connected) {
             char lastvalue[128] = {0};
 
             /* Fetch last value */
-            int ret = zabbix_api_get_last_value(wd->api, wd->config.item_id,
+            int ret = zabbix_api_get_last_value(wd->api, cfg.item_id,
                                                 lastvalue, sizeof(lastvalue));
             if (ret == 0) {
                 EnterCriticalSection(&wd->cs);
@@ -243,12 +251,12 @@ static DWORD WINAPI widget_worker(LPVOID param)
             }
 
             /* Fetch history for trend charts */
-            if (wd->config.type == WIDGET_TREND && wd->config.value_type >= 0) {
+            if (cfg.type == WIDGET_TREND && cfg.value_type >= 0) {
                 time_t now = time(NULL);
-                time_t from = now - wd->config.trend_hours * 3600;
+                time_t from = now - cfg.trend_hours * 3600;
                 ZabbixHistoryPoint *points = NULL;
-                int count = zabbix_api_get_history(wd->api, wd->config.item_id,
-                                                    wd->config.value_type,
+                int count = zabbix_api_get_history(wd->api, cfg.item_id,
+                                                    cfg.value_type,
                                                     (int)from, (int)now, &points);
                 if (count > 0) {
                     EnterCriticalSection(&wd->cs);
@@ -263,7 +271,7 @@ static DWORD WINAPI widget_worker(LPVOID param)
         }
 
         /* Wait, checking running flag - wakeable by refresh_event */
-        int interval = wd->config.refresh_interval > 0 ? wd->config.refresh_interval : 30;
+        int interval = cfg.refresh_interval > 0 ? cfg.refresh_interval : 30;
         if (wd->refresh_event) {
             /* Wait for either the interval to elapse or a refresh signal */
             for (int i = 0; i < interval && wd->running; i++)
@@ -275,9 +283,12 @@ static DWORD WINAPI widget_worker(LPVOID param)
         }
     }
 
-    /* Thread is exiting: free per-widget resources HERE (not in WM_DESTROY).
-       WM_DESTROY may time out before this thread finishes a blocking network
-       call, so freeing wd there would cause a use-after-free. */
+    /* Thread is exiting. We own wd from here on: WM_DESTROY only waits on the
+       thread handle and must NOT touch wd after we return. Free everything
+       (including the GDI render buffers) here so nothing is leaked and nothing
+       is double-freed. */
+    if (wd->render_dc) DeleteDC(wd->render_dc);
+    if (wd->render_bmp) DeleteObject(wd->render_bmp);
     if (wd->history) free(wd->history);
     if (wd->api) zabbix_api_abort(wd->api);   /* last-chance interrupt */
     DeleteCriticalSection(&wd->cs);
@@ -567,6 +578,10 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 char buf[64];
 
                 GetDlgItemTextA(hwnd, IDC_REFRESH_EDIT, buf, sizeof(buf));
+                /* The worker thread reads wd->config without the lock, so guard
+                   these writes with the same critical section to avoid a torn
+                   read (e.g. of the 32-byte item_id). */
+                EnterCriticalSection(&sd->wd->cs);
                 cfg->refresh_interval = atoi(buf);
                 if (cfg->refresh_interval < 5) cfg->refresh_interval = 5;
 
@@ -593,6 +608,7 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                     cfg->trend_hours = atoi(buf);
                     if (cfg->trend_hours < 1) cfg->trend_hours = 1;
                 }
+                LeaveCriticalSection(&sd->wd->cs);
 
                 /* Update topmost */
                 widget_set_topmost(sd->wd->hwnd, cfg->always_on_top);
@@ -845,18 +861,20 @@ static LRESULT CALLBACK WidgetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
         case WM_DESTROY: {
             /* Stop worker thread.
-             * wd and its members are freed by the worker thread on exit, so we
-             * must NOT free them here: if a network call is in flight, the thread
-             * outlives this WaitForSingleObject and would touch freed memory.
-             * We only release the window-owned GDI render buffers. */
+             * wd (and its render buffers) are freed by the worker thread on
+             * exit, so after WaitForSingleObject returns we must NOT dereference
+             * wd — doing so would be a use-after-free. Snapshot the thread
+             * handle into a local first and only touch that local afterwards. */
+            HANDLE thread = NULL;
             if (wd && wd->thread) {
+                thread = wd->thread;
                 wd->running = 0;
                 if (wd->refresh_event) SetEvent(wd->refresh_event); /* wake from sleep loop */
                 if (wd->api) zabbix_api_abort(wd->api);            /* interrupt in-flight HTTP */
-                WaitForSingleObject(wd->thread, 3000);
-                CloseHandle(wd->thread);
-                if (wd->render_dc) DeleteDC(wd->render_dc);
-                if (wd->render_bmp) DeleteObject(wd->render_bmp);
+            }
+            if (thread) {
+                WaitForSingleObject(thread, 3000);
+                CloseHandle(thread);
             }
             SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
             return 0;

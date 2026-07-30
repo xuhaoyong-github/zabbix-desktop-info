@@ -481,18 +481,27 @@ static LRESULT CALLBACK SelectProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             return 0;
 
         case WM_DESTROY: {
-            /* Wait for threads */
+            /* Interrupt any in-flight request so the fetch threads return
+               promptly. The shared API's network calls are bounded by the 10s
+               connect/send/receive timeouts we set, so waiting up to that long
+               guarantees both threads finish before 'sd' (a stack variable in
+               ui_select_show) goes out of scope — otherwise a still-running
+               thread would write into freed stack memory. */
+            if (sd->api) zabbix_api_abort(sd->api);
+
             if (sd->host_thread) {
-                WaitForSingleObject(sd->host_thread, 3000);
+                WaitForSingleObject(sd->host_thread, 10000);
                 CloseHandle(sd->host_thread);
+                sd->host_thread = NULL;
             }
             if (sd->item_thread) {
-                WaitForSingleObject(sd->item_thread, 3000);
+                WaitForSingleObject(sd->item_thread, 10000);
                 CloseHandle(sd->item_thread);
+                sd->item_thread = NULL;
             }
             /* Free data */
-            if (sd->hosts) free(sd->hosts);
-            if (sd->items) free(sd->items);
+            if (sd->hosts) { free(sd->hosts); sd->hosts = NULL; }
+            if (sd->items) { free(sd->items); sd->items = NULL; }
             break;
         }
 

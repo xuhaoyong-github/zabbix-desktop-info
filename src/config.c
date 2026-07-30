@@ -311,11 +311,38 @@ int config_save(const AppConfig *cfg, const char *filepath)
     char *text = json_stringify(root, 1);
     json_free(root);
 
-    FILE *f = fopen(filepath, "wb");
+    /* Serialization failed — do NOT touch the existing file, otherwise the
+     * user's saved config (with all widgets) would be lost. */
+    if (!text) return -1;
+
+    /* ----- Atomic write: write to a temp file, then rename over the target.
+       This guarantees config.json is never left empty/truncated if the process
+       is killed (crash, Task Manager, shutdown) mid-write. ----- */
+    char tmp[MAX_PATH * 2];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", filepath);
+
+    FILE *f = fopen(tmp, "wb");
     if (!f) { free(text); return -1; }
-    fputs(text, f);
-    fclose(f);
+
+    size_t len = strlen(text);
+    int ok = (fwrite(text, 1, len, f) == len) && (fclose(f) == 0);
     free(text);
+    if (!ok) {
+        DeleteFileA(tmp);
+        return -1;
+    }
+
+    /* Atomic replace: on the same volume this is an atomic operation, so a
+       reader never sees a half-written/empty config.json. */
+    if (!MoveFileExA(tmp, filepath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DeleteFileA(tmp);
+        return -1;
+    }
+
+    /* Best-effort backup of the previous config for manual recovery. */
+    char bak[MAX_PATH * 2];
+    snprintf(bak, sizeof(bak), "%s.bak", filepath);
+    CopyFileA(filepath, bak, FALSE);
     return 0;
 }
 

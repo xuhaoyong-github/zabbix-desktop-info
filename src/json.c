@@ -60,26 +60,61 @@ static char *decode_string(Parser *ps)
                 case '\\': str[i++] = '\\'; break;
                 case '"': str[i++] = '"'; break;
                 case 'u': {
-                    /* skip 4 hex chars, keep as UTF-8 if possible */
-                    unsigned int cp = 0;
+                    /* Parse one UTF-16 code unit (4 hex digits). */
+                    unsigned int cu = 0;
                     int h;
                     for (h = 0; h < 4 && s[1]; h++) {
                         s++;
                         char hc = *s;
-                        if (hc >= '0' && hc <= '9') cp = cp * 16 + (hc - '0');
-                        else if (hc >= 'a' && hc <= 'f') cp = cp * 16 + (hc - 'a' + 10);
-                        else if (hc >= 'A' && hc <= 'F') cp = cp * 16 + (hc - 'A' + 10);
+                        if (hc >= '0' && hc <= '9') cu = cu * 16 + (hc - '0');
+                        else if (hc >= 'a' && hc <= 'f') cu = cu * 16 + (hc - 'a' + 10);
+                        else if (hc >= 'A' && hc <= 'F') cu = cu * 16 + (hc - 'A' + 10);
                     }
-                    /* encode as UTF-8 */
-                    if (cp < 0x80) {
-                        str[i++] = (char)cp;
-                    } else if (cp < 0x800) {
-                        str[i++] = (char)(0xC0 | (cp >> 6));
-                        str[i++] = (char)(0x80 | (cp & 0x3F));
+                    /* A non-BMP code point is encoded in JSON as a high
+                       surrogate (0xD800..0xDBFF) followed by a low surrogate
+                       (0xDC00..0xDFFF). Combine them into one code point. */
+                    if (cu >= 0xD800 && cu <= 0xDBFF) {
+                        const char *p = s + 1;
+                        if (p[0] == '\\' && p[1] == 'u') {
+                            unsigned int lo = 0;
+                            const char *q = p + 2;
+                            int ok = 1;
+                            for (h = 0; h < 4; h++, q++) {
+                                char hc = *q;
+                                if (hc >= '0' && hc <= '9') lo = lo * 16 + (hc - '0');
+                                else if (hc >= 'a' && hc <= 'f') lo = lo * 16 + (hc - 'a' + 10);
+                                else if (hc >= 'A' && hc <= 'F') lo = lo * 16 + (hc - 'A' + 10);
+                                else { ok = 0; break; }
+                            }
+                            if (ok && lo >= 0xDC00 && lo <= 0xDFFF) {
+                                unsigned int cp = 0x10000
+                                    + ((cu - 0xD800) << 10)
+                                    + (lo - 0xDC00);
+                                /* encode as 4-byte UTF-8 */
+                                str[i++] = (char)(0xF0 | (cp >> 18));
+                                str[i++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+                                str[i++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+                                str[i++] = (char)(0x80 | (cp & 0x3F));
+                                /* skip the second \uXXXX: after the switch the
+                                   loop does s++, so land just before the final
+                                   hex digit of the low surrogate. */
+                                s = q - 1;
+                                break;
+                            }
+                        }
+                        /* malformed: fall through and encode the lone
+                           surrogate as 3-byte UTF-8 (best effort). */
+                    }
+                    /* encode a single code unit as UTF-8 */
+                    if (cu < 0x80) {
+                        str[i++] = (char)cu;
+                    } else if (cu < 0x800) {
+                        str[i++] = (char)(0xC0 | (cu >> 6));
+                        str[i++] = (char)(0x80 | (cu & 0x3F));
                     } else {
-                        str[i++] = (char)(0xE0 | (cp >> 12));
-                        str[i++] = (char)(0x80 | ((cp >> 6) & 0x3F));
-                        str[i++] = (char)(0x80 | (cp & 0x3F));
+                        str[i++] = (char)(0xE0 | (cu >> 12));
+                        str[i++] = (char)(0x80 | ((cu >> 6) & 0x3F));
+                        str[i++] = (char)(0x80 | (cu & 0x3F));
                     }
                     break;
                 }
