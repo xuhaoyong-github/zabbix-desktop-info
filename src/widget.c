@@ -76,32 +76,7 @@ static void center_on_cursor_monitor(int *x, int *y, int width, int height)
 #define IDM_REMOVE          2004
 #define IDM_LOCK_POSITION   2005
 
-/* Cached desktop host window so Win+D "Show Desktop" never minimizes widgets */
-static HWND g_desktop_host = NULL;
-
-/* Locate the desktop window that hosts the desktop icons (WorkerW / SHELLDLL_DefView /
- * Progman). Pinning a widget as a child of this window makes it part of the desktop,
- * so "Show Desktop" (Win+D) no longer minimizes it. */
-static HWND FindDesktopHost(void)
-{
-    HWND progman = FindWindowA("Progman", "Program Manager");
-    if (!progman) return NULL;
-    /* Enumerate WorkerW windows; the one hosting SHELLDLL_DefView is the real desktop */
-    HWND hw = NULL, worker = NULL;
-    while ((hw = FindWindowExA(NULL, hw, "WorkerW", NULL)) != NULL) {
-        if (FindWindowExA(hw, NULL, "SHELLDLL_DefView", NULL)) {
-            worker = hw;
-            break;
-        }
-    }
-    if (worker) return worker;
-    if (FindWindowExA(progman, NULL, "SHELLDLL_DefView", NULL))
-        return progman;
-    return progman;
-}
-
-/* Move a widget to a SCREEN position, converting to parent-client coordinates
- * if the widget is currently parented to the desktop host. */
+/* Move a widget to a SCREEN position. The widget is always a top-level window. */
 static void move_widget_to_screen_pos(HWND hwnd, int sx, int sy)
 {
     POINT pt = { sx, sy };
@@ -114,36 +89,23 @@ static void move_widget_to_screen_pos(HWND hwnd, int sx, int sy)
 
 /* Apply pin mode:
  *  - topmost   : top-level window + HWND_TOPMOST (floats above everything)
- *  - !topmost  : child of the desktop host (pinned to desktop, Win+D immune)
- * Screen position is preserved across re-parenting. */
+ *  - !topmost  : top-level window + HWND_NOTOPMOST (normal window, can be covered,
+ *                stays visible on the desktop)
+ *
+ * We deliberately do NOT re-parent the widget to the desktop host
+ * (WorkerW / SHELLDLL_DefView / Progman): on several Windows versions the
+ * layered child window ends up hidden behind the icon layer, making the widget
+ * disappear entirely after un-pinning. The trade-off is that "Show Desktop"
+ * (Win+D) will minimize un-pinned widgets, which is the expected behaviour for
+ * a normal window. */
 static void widget_apply_pin(HWND hwnd, int topmost)
 {
     RECT rc;
     GetWindowRect(hwnd, &rc); /* always screen coords */
 
-    if (topmost) {
-        if (GetAncestor(hwnd, GA_PARENT) != GetDesktopWindow())
-            SetParent(hwnd, NULL);
-        SetWindowPos(hwnd, HWND_TOPMOST, rc.left, rc.top, 0, 0,
-                     SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    } else {
-        if (!g_desktop_host || !IsWindow(g_desktop_host))
-            g_desktop_host = FindDesktopHost();
-        if (g_desktop_host) {
-            if (GetAncestor(hwnd, GA_PARENT) != g_desktop_host)
-                SetParent(hwnd, g_desktop_host);
-            POINT pt = { rc.left, rc.top };
-            ScreenToClient(g_desktop_host, &pt);
-            /* HWND_TOP within the desktop layer keeps the widget above the
-             * icon layer (SHELLDLL_DefView) but below all normal windows. */
-            SetWindowPos(hwnd, HWND_TOP, pt.x, pt.y, 0, 0,
-                         SWP_NOACTIVATE | SWP_NOSIZE | SWP_SHOWWINDOW);
-        } else {
-            /* No desktop host found: stay top-level, bottom of z-order */
-            SetWindowPos(hwnd, HWND_BOTTOM, rc.left, rc.top, 0, 0,
-                         SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        }
-    }
+    SetWindowPos(hwnd, topmost ? HWND_TOPMOST : HWND_NOTOPMOST,
+                 rc.left, rc.top, 0, 0,
+                 SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
 /* Settings dialog control IDs */
@@ -932,6 +894,25 @@ static LRESULT CALLBACK WidgetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             /* Never take activation: prevents the desktop icon layer from being
              * pushed above the widget when it is pinned to the desktop. */
             return MA_NOACTIVATE;
+
+        case WM_WINDOWPOSCHANGING: {
+            /* Keep the widget alive across "Show Desktop" (Win+D). Show Desktop
+               hides top-level windows by setting SWP_HIDEWINDOW in this message;
+               strip the flag so the widget behaves like a desktop pet and stays
+               visible on the desktop. */
+            WINDOWPOS *wp = (WINDOWPOS *)lParam;
+            wp->flags &= ~SWP_HIDEWINDOW;
+            return 0;
+        }
+
+        case WM_SYSCOMMAND:
+            /* Never let the widget be minimized. "Show Desktop" (Win+D) sends
+               SC_MINIMIZE to non-topmost windows (topmost ones are left alone,
+               which is why only the un-pinned case got hidden). Block it for
+               every state — pinned, un-pinned, or locked. */
+            if ((wParam & 0xFFF0) == SC_MINIMIZE)
+                return 0;
+            break;
 
         case WM_LBUTTONDOWN: {
             /* Locked widgets are click-through; ignore mouse entirely */
