@@ -12,6 +12,7 @@
 #include "zabbix_api.h"
 #include "i18n.h"
 #include "resource.h"
+#include "ui_select.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
@@ -160,6 +161,7 @@ static void widget_apply_pin(HWND hwnd, int topmost)
 #define IDC_COLOR_BUTTON    3012
 #define IDC_OK              3013
 #define IDC_CANCEL          3014
+#define IDC_CHANGE_ITEM     3015
 
 typedef struct {
     WidgetConfig config;
@@ -387,6 +389,7 @@ typedef struct {
     WidgetData *wd;
     int accent_color;
     HWND hOpacityLabel;
+    HWND hCurrLabel;     /* "host / item" display label */
     /* Dark theme */
     HBRUSH hBgBrush;
     HBRUSH hEditBrush;
@@ -489,9 +492,19 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             int x1 = 15;
             int editW = 65;
 
+            /* ---- Current Monitor Item ---- */
+            i18n_create_label(hwnd, S_MONITOR_ITEMS, x1, y + 3, 130, 18, hFont);
+
+            char buf[512];
+            snprintf(buf, sizeof(buf), "%s / %s", cfg->host_name, cfg->item_name);
+            sd->hCurrLabel = i18n_create_label_str(hwnd, buf, x1, y + 22, 265, 18, hFont);
+
+            i18n_create_button(hwnd, S_CHANGE_MONITOR_ITEM,
+                BS_PUSHBUTTON, x1, y + 44, 170, 22, IDC_CHANGE_ITEM, hFont);
+            y += 76;
+
             /* Refresh interval */
             i18n_create_label(hwnd, S_REFRESH_SEC, x1, y + 3, 120, 18, hFont);
-            char buf[32];
             snprintf(buf, sizeof(buf), "%d", cfg->refresh_interval);
             CreateEdit(hwnd, buf, 135, y, editW, 22, IDC_REFRESH_EDIT, hFont);
             y += 32;
@@ -656,6 +669,29 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 DestroyWindow(hwnd);
             } else if (cmd == IDC_CANCEL) {
                 DestroyWindow(hwnd);
+            } else if (cmd == IDC_CHANGE_ITEM) {
+                WidgetConfig new_wc;
+                memset(&new_wc, 0, sizeof(new_wc));
+                if (ui_select_show(GetModuleHandle(NULL), hwnd, sd->wd->api, &new_wc)) {
+                    EnterCriticalSection(&sd->wd->cs);
+                    strncpy(sd->wd->config.item_id, new_wc.item_id, sizeof(sd->wd->config.item_id) - 1);
+                    strncpy(sd->wd->config.host_name, new_wc.host_name, sizeof(sd->wd->config.host_name) - 1);
+                    strncpy(sd->wd->config.item_name, new_wc.item_name, sizeof(sd->wd->config.item_name) - 1);
+                    strncpy(sd->wd->config.units, new_wc.units, sizeof(sd->wd->config.units) - 1);
+                    sd->wd->config.value_type = new_wc.value_type;
+                    LeaveCriticalSection(&sd->wd->cs);
+
+                    /* Update display label */
+                    {
+                        char buf2[512];
+                        snprintf(buf2, sizeof(buf2), "%s / %s", new_wc.host_name, new_wc.item_name);
+                        set_text_utf8(sd->hCurrLabel, buf2);
+                    }
+
+                    /* Save config and refresh widget */
+                    sync_and_save(sd->wd);
+                    PostMessage(sd->wd->hwnd, WM_REFRESH_WIDGET, 0, 0);
+                }
             }
             break;
         }
@@ -743,6 +779,14 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             LineTo(hdc, SET_MARGIN + 40, tr.bottom - 2);
             SelectObject(hdc, hOldPen);
             DeleteObject(hAcc);
+
+            /* Thin separator below "Current Monitor Item" area (y = SET_HEADER_Y + 73 = 155) */
+            HPEN hSep = CreatePen(PS_SOLID, 1, SET_CLR_SEP);
+            hOldPen = (HPEN)SelectObject(hdc, hSep);
+            MoveToEx(hdc, SET_MARGIN, 155, NULL);
+            LineTo(hdc, rc.right - SET_MARGIN, 155);
+            SelectObject(hdc, hOldPen);
+            DeleteObject(hSep);
 
             EndPaint(hwnd, &ps);
             return 0;
