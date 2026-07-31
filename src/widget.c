@@ -387,7 +387,29 @@ typedef struct {
     WidgetData *wd;
     int accent_color;
     HWND hOpacityLabel;
+    /* Dark theme */
+    HBRUSH hBgBrush;
+    HBRUSH hEditBrush;
+    HBRUSH hHeaderBrush;
+    HFONT  hTitleFont;
 } SettingsData;
+
+/* ---- shared dark palette ---- */
+#define SET_CLR_BG         RGB(30,  33,  48)
+#define SET_CLR_HEADER_BG  RGB(24,  27,  40)
+#define SET_CLR_TEXT       RGB(228, 228, 240)
+#define SET_CLR_ACCENT     RGB(74,  144, 217)
+#define SET_CLR_EDIT_BG    RGB(22,  24,  36)
+#define SET_CLR_SEP        RGB(60,  64,  84)
+#define SET_HEADER_Y 82
+#define SET_MARGIN   12
+
+static HFONT MakeSettingsTitleFont(void)
+{
+    return CreateFontA(-16, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, FF_SWISS, "Segoe UI");
+}
 
 static HWND CreateEdit(HWND parent, const char *text, int x, int y, int w, int h, int id, HFONT hFont)
 {
@@ -430,15 +452,17 @@ static void DrawColorSwatch(HWND hwnd, HDC hdc, int color)
 {
     RECT rc;
     GetClientRect(hwnd, &rc);
-    /* Fill with color */
     HBRUSH brush = CreateSolidBrush(color);
     FillRect(hdc, &rc, brush);
     DeleteObject(brush);
-    /* Border */
-    HPEN pen = CreatePen(PS_SOLID, 1, RGB(80, 80, 80));
-    SelectObject(hdc, pen);
-    SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    /* Border - subtle on dark bg, clean on light */
+    HPEN pen = CreatePen(PS_SOLID, 1, RGB(100, 105, 120));
+    HPEN oldPen = (HPEN)SelectObject(hdc, pen);
+    HBRUSH oldBr = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
     Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
+    SelectObject(hdc, oldPen);
+    SelectObject(hdc, oldBr);
+    DeleteObject(pen);
 }
 
 static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -451,81 +475,91 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             sd = (SettingsData *)cs->lpCreateParams;
             SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)sd);
 
+            /* Dark theme brushes */
+            sd->hBgBrush     = CreateSolidBrush(SET_CLR_BG);
+            sd->hEditBrush   = CreateSolidBrush(SET_CLR_EDIT_BG);
+            sd->hHeaderBrush = CreateSolidBrush(SET_CLR_HEADER_BG);
+            sd->hTitleFont   = MakeSettingsTitleFont();
+
             HFONT hFont = GetDlgFont();
             WidgetConfig *cfg = &sd->wd->config;
             int isGauge = (cfg->type == WIDGET_GAUGE);
             int isTrend = (cfg->type == WIDGET_TREND);
-            int y = 10;
+            int y = SET_HEADER_Y + 8;
+            int x1 = 15;
+            int editW = 65;
 
             /* Refresh interval */
-            i18n_create_label(hwnd, S_REFRESH_SEC, 10, y + 3, 100, 18, hFont);
+            i18n_create_label(hwnd, S_REFRESH_SEC, x1, y + 3, 120, 18, hFont);
             char buf[32];
             snprintf(buf, sizeof(buf), "%d", cfg->refresh_interval);
-            CreateEdit(hwnd, buf, 115, y, 60, 22, IDC_REFRESH_EDIT, hFont);
+            CreateEdit(hwnd, buf, 135, y, editW, 22, IDC_REFRESH_EDIT, hFont);
             y += 32;
 
             /* Always on top */
             i18n_create_checkbox(hwnd, S_ALWAYS_ON_TOP, cfg->always_on_top,
-                          10, y, 200, 20, IDC_TOPMOST_CHECK, hFont);
+                          x1, y, 220, 20, IDC_TOPMOST_CHECK, hFont);
             y += 30;
 
             /* Opacity */
-            i18n_create_label(hwnd, S_BACKGROUND_OPACITY, 10, y + 3, 130, 18, hFont);
-            sd->hOpacityLabel = i18n_create_label_str(hwnd, "", 145, y + 3, 30, 18, hFont);
-            CreateTrackbar(hwnd, 50, 255, cfg->bg_opacity, 10, y + 22, 165, IDC_OPACITY_TRACK, hFont);
+            i18n_create_label(hwnd, S_BACKGROUND_OPACITY, x1, y + 3, 140, 18, hFont);
+            sd->hOpacityLabel = i18n_create_label_str(hwnd, "", 155, y + 3, 35, 18, hFont);
+            CreateTrackbar(hwnd, 50, 255, cfg->bg_opacity, x1, y + 22, 200, IDC_OPACITY_TRACK, hFont);
             y += 55;
 
             /* Accent color */
-            i18n_create_label(hwnd, S_ACCENT_COLOR, 10, y + 3, 90, 18, hFont);
+            i18n_create_label(hwnd, S_ACCENT_COLOR, x1, y + 3, 90, 18, hFont);
             CreateWindowExA(0, "BUTTON", "", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                105, y, 40, 22, hwnd, (HMENU)(INT_PTR)IDC_COLOR_BUTTON, NULL, NULL);
+                115, y, 44, 22, hwnd, (HMENU)(INT_PTR)IDC_COLOR_BUTTON, NULL, NULL);
             sd->accent_color = cfg->accent_color;
             y += 35;
 
             /* Gauge-specific */
             if (isGauge) {
-                i18n_create_label(hwnd, S_GAUGE_SETTINGS, 10, y, 200, 18, hFont);
+                i18n_create_label(hwnd, S_GAUGE_SETTINGS, x1, y, 200, 18, hFont);
                 y += 25;
 
-                i18n_create_label(hwnd, S_MIN, 10, y + 3, 40, 18, hFont);
+                i18n_create_label(hwnd, S_MIN, x1, y + 3, 40, 18, hFont);
                 snprintf(buf, sizeof(buf), "%.1f", cfg->gauge_min);
-                CreateEdit(hwnd, buf, 55, y, 60, 22, IDC_MIN_EDIT, hFont);
-                i18n_create_label(hwnd, S_MAX, 125, y + 3, 40, 18, hFont);
+                CreateEdit(hwnd, buf, 55, y, editW, 22, IDC_MIN_EDIT, hFont);
+                i18n_create_label(hwnd, S_MAX, 130, y + 3, 40, 18, hFont);
                 snprintf(buf, sizeof(buf), "%.1f", cfg->gauge_max);
-                CreateEdit(hwnd, buf, 170, y, 60, 22, IDC_MAX_EDIT, hFont);
+                CreateEdit(hwnd, buf, 175, y, editW, 22, IDC_MAX_EDIT, hFont);
                 y += 30;
 
                 i18n_create_checkbox(hwnd, S_WARN, cfg->gauge_warn_enabled,
-                              10, y, 50, 20, IDC_WARN_CHECK, hFont);
+                              x1, y, 55, 20, IDC_WARN_CHECK, hFont);
                 snprintf(buf, sizeof(buf), "%.1f", cfg->gauge_warn);
-                CreateEdit(hwnd, buf, 65, y, 60, 22, IDC_WARN_EDIT, hFont);
+                CreateEdit(hwnd, buf, 70, y, editW, 22, IDC_WARN_EDIT, hFont);
                 y += 28;
 
                 i18n_create_checkbox(hwnd, S_CRIT, cfg->gauge_crit_enabled,
-                              10, y, 50, 20, IDC_CRIT_CHECK, hFont);
+                              x1, y, 55, 20, IDC_CRIT_CHECK, hFont);
                 snprintf(buf, sizeof(buf), "%.1f", cfg->gauge_crit);
-                CreateEdit(hwnd, buf, 65, y, 60, 22, IDC_CRIT_EDIT, hFont);
+                CreateEdit(hwnd, buf, 70, y, editW, 22, IDC_CRIT_EDIT, hFont);
                 y += 30;
             }
 
             /* Trend-specific */
             if (isTrend) {
-                i18n_create_label(hwnd, S_TREND_SETTINGS, 10, y, 200, 18, hFont);
+                i18n_create_label(hwnd, S_TREND_SETTINGS, x1, y, 200, 18, hFont);
                 y += 25;
-                i18n_create_label(hwnd, S_HOURS, 10, y + 3, 120, 18, hFont);
+                i18n_create_label(hwnd, S_HOURS, x1, y + 3, 130, 18, hFont);
                 snprintf(buf, sizeof(buf), "%d", cfg->trend_hours);
-                CreateEdit(hwnd, buf, 135, y, 60, 22, IDC_HOURS_EDIT, hFont);
+                CreateEdit(hwnd, buf, 145, y, editW, 22, IDC_HOURS_EDIT, hFont);
                 y += 30;
             }
 
             /* Buttons */
             int btnY = y + 10;
-            i18n_create_button(hwnd, S_BTN_OK, BS_DEFPUSHBUTTON, 50, btnY, 80, 28, IDC_OK, hFont);
-            i18n_create_button(hwnd, S_CANCEL, 0, 140, btnY, 80, 28, IDC_CANCEL, hFont);
+            int winW = 300;
+            i18n_create_button(hwnd, S_BTN_OK, BS_DEFPUSHBUTTON,
+                               winW / 2 - 90, btnY, 85, 30, IDC_OK, hFont);
+            i18n_create_button(hwnd, S_CANCEL, 0,
+                               winW / 2 + 5, btnY, 85, 30, IDC_CANCEL, hFont);
 
             /* Size window to content */
-            int winH = btnY + 40;
-            int winW = 250;
+            int winH = btnY + 48;
             RECT rc = {0, 0, winW, winH};
             AdjustWindowRectEx(&rc, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, FALSE, 0);
             SetWindowPos(hwnd, NULL, 0, 0, rc.right - rc.left, rc.bottom - rc.top, SWP_NOMOVE | SWP_NOZORDER);
@@ -630,6 +664,97 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             DestroyWindow(hwnd);
             break;
 
+        /* ---- Dark-theme control coloring ---- */
+
+        case WM_CTLCOLORSTATIC: {
+            HDC hdcStatic = (HDC)wParam;
+            SetTextColor(hdcStatic, SET_CLR_TEXT);
+            SetBkMode(hdcStatic, TRANSPARENT);
+            SetBkColor(hdcStatic, SET_CLR_BG);
+            return (LRESULT)sd->hBgBrush;
+        }
+
+        case WM_CTLCOLOREDIT: {
+            HDC hdcEdit = (HDC)wParam;
+            SetTextColor(hdcEdit, SET_CLR_TEXT);
+            SetBkColor(hdcEdit, SET_CLR_EDIT_BG);
+            return (LRESULT)sd->hEditBrush;
+        }
+
+        case WM_CTLCOLORBTN: {
+            HDC hdcBtn = (HDC)wParam;
+            SetTextColor(hdcBtn, SET_CLR_TEXT);
+            SetBkColor(hdcBtn, SET_CLR_BG);
+            return (LRESULT)sd->hBgBrush;
+        }
+
+        case WM_ERASEBKGND: {
+            HDC hdc = (HDC)wParam;
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            HBRUSH hOld = (HBRUSH)SelectObject(hdc, sd->hBgBrush);
+            Rectangle(hdc, rc.left - 1, rc.top - 1, rc.right + 1, rc.bottom + 1);
+            SelectObject(hdc, hOld);
+            return 1;
+        }
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+
+            /* Header bg */
+            RECT hr = rc;
+            hr.bottom = SET_HEADER_Y;
+            HBRUSH hOld = (HBRUSH)SelectObject(hdc, sd->hHeaderBrush);
+            Rectangle(hdc, hr.left - 1, hr.top - 1, hr.right + 1, hr.bottom);
+            SelectObject(hdc, hOld);
+
+            /* Separator */
+            HPEN hSepPen = CreatePen(PS_SOLID, 1, SET_CLR_SEP);
+            HPEN hOldPen = (HPEN)SelectObject(hdc, hSepPen);
+            MoveToEx(hdc, hr.left, hr.bottom - 1, NULL);
+            LineTo(hdc, hr.right, hr.bottom - 1);
+            SelectObject(hdc, hOldPen);
+            DeleteObject(hSepPen);
+
+            /* Title */
+            HFONT hOldFont = (HFONT)SelectObject(hdc, sd->hTitleFont);
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, SET_CLR_TEXT);
+
+            RECT tr = hr;
+            tr.top += 24;
+            tr.left += SET_MARGIN;
+            tr.bottom -= 6;
+
+            wchar_t *titleTxt = utf8_to_wide(i18n_str(S_WIDGET_SETTINGS_TITLE));
+            if (titleTxt) {
+                DrawTextW(hdc, titleTxt, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                free(titleTxt);
+            }
+            SelectObject(hdc, hOldFont);
+
+            /* Accent underline */
+            HPEN hAcc = CreatePen(PS_SOLID, 3, SET_CLR_ACCENT);
+            hOldPen = (HPEN)SelectObject(hdc, hAcc);
+            MoveToEx(hdc, SET_MARGIN, tr.bottom - 2, NULL);
+            LineTo(hdc, SET_MARGIN + 40, tr.bottom - 2);
+            SelectObject(hdc, hOldPen);
+            DeleteObject(hAcc);
+
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+
+        case WM_DESTROY:
+            if (sd->hBgBrush)     { DeleteObject(sd->hBgBrush);     sd->hBgBrush = NULL; }
+            if (sd->hEditBrush)   { DeleteObject(sd->hEditBrush);   sd->hEditBrush = NULL; }
+            if (sd->hHeaderBrush) { DeleteObject(sd->hHeaderBrush); sd->hHeaderBrush = NULL; }
+            if (sd->hTitleFont)   { DeleteObject(sd->hTitleFont);   sd->hTitleFont = NULL; }
+            break;
+
         default:
             return DefWindowProcA(hwnd, msg, wParam, lParam);
     }
@@ -648,7 +773,7 @@ static void show_settings_dialog(HWND parent, WidgetData *wd)
         wc.hInstance = GetModuleHandle(NULL);
         wc.hIcon = LoadIconA(GetModuleHandle(NULL), MAKEINTRESOURCEA(IDI_APP_ICON));
         wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-        wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+        wc.hbrBackground = (HBRUSH)CreateSolidBrush(SET_CLR_BG);
         wc.lpszClassName = "ZabbixSettingsDlg";
         RegisterClassExA(&wc);
         registered = 1;
@@ -662,7 +787,7 @@ static void show_settings_dialog(HWND parent, WidgetData *wd)
     /* Actually, let's use a simple modal loop */
     HWND hDlg = CreateWindowExA(0, "ZabbixSettingsDlg", "",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
-        CW_USEDEFAULT, CW_USEDEFAULT, 250, 300,
+        CW_USEDEFAULT, CW_USEDEFAULT, 300, 350,
         parent, NULL, GetModuleHandle(NULL), &sd);
 
     if (!hDlg) return;

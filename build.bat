@@ -34,7 +34,7 @@ C:\MinGW\bin\windres.exe -i src\resource.rc -O coff -o %BUILD%\resource.o || got
 
 echo === Linking ===
 
-%GPP% -o %OUT% %BUILD%\*.o %LIBS% -mwindows || goto :error
+%GPP% -o %OUT% %BUILD%\*.o %LIBS% -mwindows -static-libgcc -static-libstdc++ || goto :error
 
 echo === Build successful: %OUT% ===
 exit /b 0

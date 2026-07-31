@@ -43,3 +43,8 @@ target_link_libraries(zabbix-desktop PRIVATE
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(zabbix-desktop PRIVATE -O2 -Wall)
 endif()
+
+# Statically link GCC/MinGW runtime libraries to avoid DLL dependencies
+if(MINGW)
+    target_link_options(zabbix-desktop PRIVATE -static-libgcc -static-libstdc++)
+endif()
